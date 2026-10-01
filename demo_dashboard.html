@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DONPOWER Solar Hybrid PCU — Precision HMI</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap');
+
+    body {
+      font-family: 'Montserrat', sans-serif;
+      user-select: none;
+    }
+    .font-mono-num {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    @keyframes spin-slow {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .animate-spin-slow {
+      animation: spin-slow 8s linear infinite;
+    }
+    .lcd-bg {
+      background-color: #0028a3;
+    }
+    .card-bg {
+      background-color: #002ca6;
+      border: 1.5px solid #005ce6;
+    }
+    .inv-card-active {
+      border: 2px solid #00e5ff !important;
+      box-shadow: 0 0 10px rgba(0, 229, 255, 0.4);
+    }
+    .badge-lcd {
+      background-color: #001f7a;
+      border: 1px solid #0066ee;
+      color: #00f0ff;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col items-center justify-center p-4">
+
+  <!-- Main Container -->
+  <div class="w-full max-w-4xl flex flex-col items-center gap-6">
+
+    <!-- Top Demo Controls Bar -->
+    <div class="w-full flex flex-wrap items-center justify-between bg-slate-900 border border-slate-800 rounded-xl px-5 py-3 shadow-lg">
+      <div class="flex items-center gap-3">
+        <div class="w-3 h-3 rounded-full bg-emerald-500 animate-ping"></div>
+        <span class="text-sm font-semibold text-slate-300">DONPOWER HMI HD SIMULATOR</span>
+        <span class="text-xs bg-blue-950 text-cyan-400 border border-blue-800 px-2 py-0.5 rounded">Exact Physical LCD Match</span>
+      </div>
+
+      <!-- Page Quick Tabs -->
+      <div class="flex items-center gap-2">
+        <button onclick="setPage(0)" id="btn-p0" class="page-btn text-xs font-semibold px-3 py-1.5 rounded-lg border bg-cyan-500 text-slate-950 border-cyan-400">Hub</button>
+        <button onclick="setPage(1)" id="btn-p1" class="page-btn text-xs font-semibold px-3 py-1.5 rounded-lg border bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700">Solar</button>
+        <button onclick="setPage(2)" id="btn-p2" class="page-btn text-xs font-semibold px-3 py-1.5 rounded-lg border bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700">Battery</button>
+        <button onclick="setPage(3)" id="btn-p3" class="page-btn text-xs font-semibold px-3 py-1.5 rounded-lg border bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700">Status</button>
+        <button onclick="toggleAutoPlay()" id="btn-play" class="ml-2 text-xs font-semibold px-3 py-1.5 rounded-lg border border-amber-600 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20">Auto 5s: ON</button>
+      </div>
+    </div>
+
+    <!-- Realistic TFT LCD Bezel Frame (4:3 Proportion) -->
+    <div class="p-3 bg-slate-900 rounded-2xl shadow-2xl border-4 border-slate-800 flex items-center justify-center">
+      
+      <!-- Screen Canvas: Exactly 4:3 Proportion (864 x 648 px, 3x scale of 320 x 240) -->
+      <div id="screen" class="relative w-[864px] h-[648px] lcd-bg rounded-sm overflow-hidden flex flex-col justify-between shadow-inner">
+
+        <!-- ======================================================== -->
+        <!-- HEADER (h: 68px)                                         -->
+        <!-- ======================================================== -->
+        <div class="w-full h-[68px] bg-[#00228c] border-b border-[#0048bd] px-6 flex items-center justify-between shrink-0">
+          <div class="flex items-center gap-3">
+            <span class="text-white font-extrabold tracking-wider text-2xl drop-shadow-sm">DONPOWER HYBRID PCU</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span id="rtc-clock" class="text-[#00f0ff] font-mono-num font-bold text-2xl tracking-widest">00:48:00</span>
+          </div>
+        </div>
+
+        <!-- ======================================================== -->
+        <!-- ACTIVE PAGE CANVAS (h: 516px)                            -->
+        <!-- ======================================================== -->
+        <div class="relative w-full h-[516px] p-3 overflow-hidden">
+
+          <!-- ---------------------------------------------------- -->
+          <!-- PAGE 0: ENERGY FLOW HUB                              -->
+          <!-- ---------------------------------------------------- -->
+          <div id="page-0" class="page-view absolute inset-3 grid grid-rows-2 gap-3">
+            <!-- Top Row: Solar, Inverter, Mains (3 Cards) -->
+            <div class="grid grid-cols-12 gap-3 h-full">
+              <!-- Solar Card (col-4) -->
+              <div class="col-span-4 card-bg rounded-xl p-3 flex flex-col justify-between shadow">
+                <div class="flex items-start gap-3">
+                  <!-- SVG Solar Icon -->
+                  <div class="w-12 h-12 shrink-0">
+                    <svg viewBox="0 0 32 32" class="w-full h-full">
+                      <circle cx="8" cy="8" r="5" fill="#facc15" stroke="#fde047" stroke-width="1.5"/>
+                      <path d="M8,1 L8,2.5 M8,13.5 L8,15 M1,8 L2.5,8 M13.5,8 L15,8 M3,3 L4.2,4.2 M11.8,11.8 L13,13 M13,3 L11.8,4.2 M3,13 L4.2,11.8" stroke="#facc15" stroke-width="1.5" stroke-linecap="round"/>
+                      <polygon points="12,16 29,16 31,30 10,30" fill="#002277" stroke="#00d4ff" stroke-width="1.5"/>
+                      <line x1="20" y1="16" x2="20" y2="30" stroke="#00d4ff" stroke-width="1"/>
+                      <line x1="11" y1="23" x2="30" y2="23" stroke="#00d4ff" stroke-width="1"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <div class="text-xs font-bold text-white tracking-wide">SOLAR</div>
+                    <div id="val-p0-solar" class="text-2xl font-extrabold text-white mt-0.5">77.2 V</div>
+                  </div>
+                </div>
+                <div>
+                  <span id="badge-p0-solar" class="text-xs font-bold px-3 py-0.5 rounded badge-lcd tracking-wide">ONLINE</span>
+                </div>
+              </div>
+
+              <!-- Inverter Card (col-4, Center Hero) -->
+              <div class="col-span-4 card-bg inv-card-active rounded-xl p-3 flex flex-col items-center justify-between shadow-lg">
+                <!-- SVG Inverter Icon -->
+                <div class="w-12 h-12">
+                  <svg viewBox="0 0 32 32" class="w-full h-full">
+                    <rect x="4" y="4" width="24" height="24" rx="4" fill="#002277" stroke="#00e5ff" stroke-width="1.8"/>
+                    <line x1="7" y1="9" x2="25" y2="9" stroke="#0077ff" stroke-width="1.5"/>
+                    <line x1="7" y1="13" x2="25" y2="13" stroke="#0077ff" stroke-width="1.5"/>
+                    <path d="M7,22 Q10,16 13,22 T19,22 T25,22" fill="none" stroke="#00ff88" stroke-width="2" stroke-linecap="round"/>
+                    <circle cx="24" cy="7" r="1.5" fill="#00ff88"/>
+                  </svg>
+                </div>
+                <div id="badge-p0-inv" class="text-xs font-bold px-3 py-1 rounded badge-lcd text-[#00f0ff] tracking-wide">
+                  INV ON
+                </div>
+                <div class="text-sm font-bold text-[#00f0ff] tracking-wider">
+                  OUT: 230V
+                </div>
+              </div>
+
+              <!-- Mains Card (col-4) -->
+              <div class="col-span-4 card-bg rounded-xl p-3 flex flex-col justify-between shadow">
+                <div class="flex items-start gap-3">
+                  <!-- SVG Grid Pylon Icon -->
+                  <div class="w-12 h-12 shrink-0">
+                    <svg viewBox="0 0 32 32" class="w-full h-full">
+                      <line x1="16" y1="3" x2="6" y2="30" stroke="#00e5ff" stroke-width="1.8"/>
+                      <line x1="16" y1="3" x2="26" y2="30" stroke="#00e5ff" stroke-width="1.8"/>
+                      <line x1="4" y1="10" x2="28" y2="10" stroke="#facc15" stroke-width="2"/>
+                      <line x1="7" y1="18" x2="25" y2="18" stroke="#facc15" stroke-width="2"/>
+                      <line x1="9" y1="25" x2="23" y2="25" stroke="#00e5ff" stroke-width="1.5"/>
+                      <line x1="10" y1="10" x2="22" y2="18" stroke="#ffffff" stroke-width="1"/>
+                      <line x1="22" y1="10" x2="10" y2="18" stroke="#ffffff" stroke-width="1"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <div class="text-xs font-bold text-[#00d4ff] tracking-wide">MAINS</div>
+                    <div id="val-p0-grid" class="text-2xl font-extrabold text-white mt-0.5">228 V</div>
+                  </div>
+                </div>
+                <div>
+                  <span id="badge-p0-grid" class="text-xs font-bold px-3 py-0.5 rounded badge-lcd tracking-wide">GRID OK</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Bottom Row: Battery Bank & AC Load (2 Cards) -->
+            <div class="grid grid-cols-2 gap-3 h-full">
+              <!-- Battery Bank Card -->
+              <div class="card-bg rounded-xl p-3 flex flex-col justify-between shadow">
+                <div class="flex items-center gap-3">
+                  <!-- SVG Battery Icon -->
+                  <div class="w-12 h-12 shrink-0">
+                    <svg viewBox="0 0 32 32" class="w-full h-full">
+                      <rect x="13" y="2" width="6" height="3" fill="#00e5ff"/>
+                      <rect x="6" y="5" width="20" height="24" rx="3" fill="#002277" stroke="#00e5ff" stroke-width="1.8"/>
+                      <rect x="8" y="22" width="16" height="4" rx="1" fill="#00ff88"/>
+                      <rect x="8" y="16" width="16" height="4" rx="1" fill="#00ff88"/>
+                      <rect x="8" y="10" width="16" height="4" rx="1" fill="#00ff88"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <div class="text-xs font-bold text-[#00d4ff] tracking-wide">BATTERY BANK</div>
+                    <div id="val-p0-batt" class="text-2xl font-extrabold text-white">26.4 V</div>
+                    <div id="val-p0-bcur" class="text-xs font-bold text-[#00d4ff] tracking-wide">CHRG: +13.0A</div>
+                  </div>
+                </div>
+                <div class="w-full mt-2">
+                  <div class="w-full h-2.5 bg-[#001f70] rounded-full overflow-hidden">
+                    <div id="bar-p0-batt" class="h-full bg-[#00ff99] rounded-full" style="width: 72%;"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- AC Output Load Card -->
+              <div class="card-bg rounded-xl p-3 flex flex-col justify-between shadow">
+                <div class="flex items-center gap-3">
+                  <!-- SVG Home Icon -->
+                  <div class="w-12 h-12 shrink-0">
+                    <svg viewBox="0 0 32 32" class="w-full h-full">
+                      <polygon points="16,3 3,14 29,14" fill="#ff4d88" stroke="#ff80aa" stroke-width="1.5"/>
+                      <rect x="22" y="5" width="3" height="6" fill="#cc1155"/>
+                      <rect x="7" y="14" width="18" height="15" fill="#002277" stroke="#00e5ff" stroke-width="1.5"/>
+                      <rect x="13" y="19" width="6" height="10" fill="#0077ff"/>
+                      <rect x="9" y="16" width="3" height="3" fill="#ffffff"/>
+                      <rect x="20" y="16" width="3" height="3" fill="#ffffff"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <div class="text-xs font-bold text-[#00d4ff] tracking-wide">AC OUTPUT LOAD</div>
+                    <div id="val-p0-load" class="text-2xl font-extrabold text-white">38% LOAD</div>
+                    <div id="val-p0-lsrc" class="text-xs font-bold text-[#00d4ff] tracking-wide">FEED: SOLAR</div>
+                  </div>
+                </div>
+                <div class="w-full mt-2">
+                  <div class="w-full h-2.5 bg-[#001f70] rounded-full overflow-hidden">
+                    <div id="bar-p0-load" class="h-full bg-[#ffd700] rounded-full" style="width: 38%;"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ---------------------------------------------------- -->
+          <!-- PAGE 1: SOLAR PV & CHARGER DEEP DIVE                 -->
+          <!-- ---------------------------------------------------- -->
+          <div id="page-1" class="page-view absolute inset-3 grid grid-cols-12 gap-3 hidden">
+            <!-- Left Panel: Solar Sun Hero (col-5) -->
+            <div class="col-span-5 card-bg rounded-xl p-4 flex flex-col items-center justify-between shadow">
+              <div class="text-xs font-bold text-white tracking-wider">SOLAR PV ARRAY</div>
+              
+              <!-- Orbital Animated Sun Gauge -->
+              <div class="relative w-36 h-36 flex items-center justify-center my-auto">
+                <svg viewBox="0 0 100 100" class="absolute inset-0 w-full h-full animate-spin-slow">
+                  <circle cx="50" cy="50" r="42" fill="none" stroke="#001f70" stroke-width="5"/>
+                  <path d="M 50,8 A 42,42 0 0,1 92,50" fill="none" stroke="#facc15" stroke-width="6" stroke-linecap="round"/>
+                </svg>
+                <div class="w-16 h-16 relative z-10">
+                  <svg viewBox="0 0 32 32" class="w-full h-full">
+                    <circle cx="16" cy="16" r="7" fill="#facc15" stroke="#fde047" stroke-width="1.8"/>
+                    <g stroke="#facc15" stroke-width="2" stroke-linecap="round">
+                      <line x1="16" y1="2" x2="16" y2="5"/>
+                      <line x1="16" y1="27" x2="16" y2="30"/>
+                      <line x1="2" y1="16" x2="5" y2="16"/>
+                      <line x1="27" y1="16" x2="30" y2="16"/>
+                      <line x1="6" y1="6" x2="8.5" y2="8.5"/>
+                      <line x1="23.5" y1="23.5" x2="26" y2="26"/>
+                      <line x1="26" y1="6" x2="23.5" y2="8.5"/>
+                      <line x1="8.5" y1="23.5" x2="6" y2="26"/>
+                    </g>
+                  </svg>
+                </div>
+              </div>
+
+              <div class="text-center w-full">
+                <div id="val-p1-solar" class="text-3xl font-extrabold text-white">77.5 V</div>
+                <div class="mt-2">
+                  <span id="badge-p1-solar" class="text-xs font-bold px-3 py-0.5 rounded badge-lcd tracking-wide inline-flex items-center gap-1.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                    SOLAR ACTIVE
+                  </span>
+                </div>
+                <div id="val-p1-raw" class="text-xs text-[#00d4ff] font-bold mt-2 tracking-wide">RAW DC: 385V (ACTIVE)</div>
+              </div>
+            </div>
+
+            <!-- Right Panel: Charger & DC Boost Parameters (col-7) -->
+            <div class="col-span-7 card-bg rounded-xl p-5 flex flex-col justify-between shadow">
+              <div class="text-sm font-bold text-[#00d4ff] border-b border-[#0048bd] pb-2 tracking-wider">CHARGER & DC BOOST</div>
+
+              <div class="space-y-4 my-auto">
+                <div class="border-b border-[#0048bd]/70 pb-2">
+                  <div class="text-xs text-[#00c8ff] font-semibold uppercase tracking-wide">CHARGER MODE</div>
+                  <div id="val-p1-chgmode" class="text-lg font-bold text-[#00d4ff] mt-0.5">SOLAR CHARG</div>
+                </div>
+
+                <div class="border-b border-[#0048bd]/70 pb-2">
+                  <div class="text-xs text-[#00c8ff] font-semibold uppercase tracking-wide">CHARGE CURRENT</div>
+                  <div id="val-p1-chgamps" class="text-lg font-bold text-[#00d4ff] mt-0.5">13.6 AMPS</div>
+                </div>
+
+                <div class="border-b border-[#0048bd]/70 pb-2">
+                  <div class="text-xs text-[#00c8ff] font-semibold uppercase tracking-wide">RAW DC BOOST</div>
+                  <div id="val-p1-dcboost" class="text-lg font-extrabold text-white mt-0.5">DC BOOST: OK!</div>
+                </div>
+
+                <div>
+                  <div class="text-xs text-[#00c8ff] font-semibold uppercase tracking-wide">PRIORITY PREFERENCE</div>
+                  <div id="val-p1-pref" class="text-lg font-bold text-[#00d4ff] mt-0.5">PREF: SOLAR</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ---------------------------------------------------- -->
+          <!-- PAGE 2: BATTERY HEALTH & INVERTER LOAD               -->
+          <!-- ---------------------------------------------------- -->
+          <div id="page-2" class="page-view absolute inset-3 grid grid-cols-2 gap-3 hidden">
+            <!-- Left Card: Battery Bank -->
+            <div class="card-bg rounded-xl p-4 flex flex-col justify-between shadow">
+              <div class="flex items-center justify-between border-b border-[#0048bd] pb-2">
+                <div class="flex items-center gap-2">
+                  <div class="w-7 h-7">
+                    <svg viewBox="0 0 32 32" class="w-full h-full">
+                      <rect x="13" y="2" width="6" height="3" fill="#00e5ff"/>
+                      <rect x="6" y="5" width="20" height="24" rx="3" fill="#002277" stroke="#00e5ff" stroke-width="1.8"/>
+                      <rect x="8" y="22" width="16" height="4" rx="1" fill="#00ff88"/>
+                      <rect x="8" y="16" width="16" height="4" rx="1" fill="#00ff88"/>
+                      <rect x="8" y="10" width="16" height="4" rx="1" fill="#00ff88"/>
+                    </svg>
+                  </div>
+                  <span class="text-sm font-bold text-[#00d4ff] tracking-wide">BATTERY BANK</span>
+                </div>
+                <span id="badge-p2-bstat" class="text-xs font-bold badge-lcd px-2.5 py-0.5 rounded tracking-wide">HEALTH: OK!</span>
+              </div>
+
+              <div class="my-auto space-y-2">
+                <div id="val-p2-batt" class="text-4xl font-extrabold text-white">26.6 V</div>
+                <div id="val-p2-bcur" class="text-base font-bold text-[#00d4ff] tracking-wide">CHRG: +14.7 A</div>
+                <div id="val-p2-bgrav" class="text-xs font-bold text-[#00d4ff] tracking-wide">GRAVITY: NORMAL</div>
+              </div>
+
+              <div>
+                <div class="flex justify-between text-xs text-[#00d4ff] mb-1 font-bold tracking-wide">
+                  <span>STATE OF CHARGE</span>
+                </div>
+                <div class="w-full h-3 bg-[#001f70] rounded-full overflow-hidden mb-1">
+                  <div id="bar-p2-batt" class="h-full bg-[#00ff99] rounded-full" style="width: 71%;"></div>
+                </div>
+                <div id="val-p2-bsoc" class="text-xs font-bold text-[#00d4ff] tracking-wide">EST. CAPACITY: 71%</div>
+              </div>
+            </div>
+
+            <!-- Right Card: AC Output Load -->
+            <div class="card-bg rounded-xl p-4 flex flex-col justify-between shadow">
+              <div class="flex items-center justify-between border-b border-[#0048bd] pb-2">
+                <div class="flex items-center gap-2">
+                  <div class="w-7 h-7">
+                    <svg viewBox="0 0 32 32" class="w-full h-full">
+                      <polygon points="16,3 3,14 29,14" fill="#ff4d88" stroke="#ff80aa" stroke-width="1.5"/>
+                      <rect x="7" y="14" width="18" height="15" fill="#002277" stroke="#00e5ff" stroke-width="1.5"/>
+                      <rect x="13" y="19" width="6" height="10" fill="#0077ff"/>
+                    </svg>
+                  </div>
+                  <span class="text-sm font-bold text-[#00d4ff] tracking-wide">AC OUTPUT</span>
+                </div>
+                <span id="val-p2-acout" class="text-xs font-bold text-white bg-[#001f7a] border border-[#005ce6] px-2.5 py-0.5 rounded tracking-wide">230 VAC</span>
+              </div>
+
+              <div class="my-auto space-y-2">
+                <div id="val-p2-load" class="text-4xl font-extrabold text-white">46% LOAD</div>
+                <div id="val-p2-lsrc" class="text-base font-bold text-[#00d4ff] tracking-wide">FEED: SOLAR PV</div>
+                <div id="val-p2-invstat" class="text-xs font-bold text-[#00d4ff] tracking-wide">INVERTER: ACTIVE</div>
+              </div>
+
+              <div>
+                <div class="flex justify-between text-xs text-[#00d4ff] mb-1 font-bold tracking-wide">
+                  <span>POWER CONSUMPTION</span>
+                </div>
+                <div class="w-full h-3 bg-[#001f70] rounded-full overflow-hidden mb-1">
+                  <div id="bar-p2-load" class="h-full bg-[#ffd700] rounded-full" style="width: 46%;"></div>
+                </div>
+                <div id="val-p2-llevel" class="text-xs font-bold text-[#00d4ff] tracking-wide">LOAD LEVEL: NORMAL</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ---------------------------------------------------- -->
+          <!-- PAGE 3: GRID, THERMAL & OPERATIONAL STATUS           -->
+          <!-- ---------------------------------------------------- -->
+          <div id="page-3" class="page-view absolute inset-3 flex flex-col gap-3 hidden">
+            <!-- Top Half: Mains Grid & Heatsink (2 Cards) -->
+            <div class="grid grid-cols-2 gap-3 h-[46%]">
+              <!-- Mains Input -->
+              <div class="card-bg rounded-xl p-3 flex flex-col justify-between shadow">
+                <div class="flex items-center gap-3">
+                  <div class="w-10 h-10 shrink-0">
+                    <svg viewBox="0 0 32 32" class="w-full h-full">
+                      <line x1="16" y1="3" x2="6" y2="30" stroke="#00e5ff" stroke-width="1.8"/>
+                      <line x1="16" y1="3" x2="26" y2="30" stroke="#00e5ff" stroke-width="1.8"/>
+                      <line x1="4" y1="10" x2="28" y2="10" stroke="#facc15" stroke-width="2"/>
+                      <line x1="7" y1="18" x2="25" y2="18" stroke="#facc15" stroke-width="2"/>
+                      <line x1="9" y1="25" x2="23" y2="25" stroke="#00e5ff" stroke-width="1.5"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <div class="text-xs text-[#00d4ff] font-bold tracking-wide">MAINS INPUT</div>
+                    <div id="val-p3-grid" class="text-2xl font-extrabold text-white">228 V</div>
+                  </div>
+                </div>
+                <div class="text-xs font-bold text-[#00d4ff] tracking-wide">50.0 Hz | STABLE</div>
+              </div>
+
+              <!-- Inverter Heatsink Temp -->
+              <div class="card-bg rounded-xl p-3 flex flex-col justify-between shadow">
+                <div class="flex items-center gap-3">
+                  <div class="w-10 h-10 shrink-0">
+                    <svg viewBox="0 0 32 32" class="w-full h-full">
+                      <rect x="13" y="3" width="6" height="18" rx="3" fill="#002277" stroke="#00e5ff" stroke-width="1.8"/>
+                      <circle cx="16" cy="24" r="6" fill="#ff4d88" stroke="#ff80aa" stroke-width="1.8"/>
+                      <rect x="14" y="10" width="4" height="11" fill="#ff4d88"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <div class="text-xs text-[#00d4ff] font-bold tracking-wide">INVERTER HEAT</div>
+                    <div id="val-p3-temp" class="text-2xl font-extrabold text-white">36.7 °C</div>
+                  </div>
+                </div>
+                <div class="w-full">
+                  <div class="w-full h-2.5 bg-[#001f70] rounded-full overflow-hidden">
+                    <div id="bar-p3-temp" class="h-full bg-[#ff9900] rounded-full" style="width: 48%;"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Bottom Half: Full System Operational Status Board -->
+            <div class="card-bg rounded-xl p-4 flex flex-col justify-between h-[52%] shadow">
+              <div class="flex items-center justify-between border-b border-[#0048bd] pb-2">
+                <span id="val-p3-invmode" class="text-sm font-bold text-[#00e5ff] tracking-wide">INVERTER: ACTIVE (RUNNING)</span>
+                <span id="val-p3-freq" class="text-sm font-bold text-[#00e5ff] tracking-wide">AC: 50.0 Hz</span>
+              </div>
+
+              <div class="grid grid-cols-2 gap-y-2 text-xs font-mono-num my-auto">
+                <div id="val-p3-pref" class="text-[#00d4ff] font-bold tracking-wide">PRIORITY: SOLAR FIRST</div>
+                <div id="val-p3-bhealth" class="text-[#00d4ff] font-bold tracking-wide">BATTERY: HEALTHY / OK</div>
+                <div id="val-p3-boost" class="text-white font-extrabold tracking-wide">DC BOOST: OK (ACTIVE)</div>
+                <div id="val-p3-chgtype" class="text-[#00d4ff] font-bold tracking-wide">CHARGER: SOLAR MPPT</div>
+                <div id="val-p3-mstatus" class="text-[#00d4ff] font-bold tracking-wide">MAINS: 228V STABLE</div>
+                <div id="val-p3-tstatus" class="text-[#00d4ff] font-bold tracking-wide">THERMAL: NORMAL COOL</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- ======================================================== -->
+        <!-- FOOTER (h: 64px)                                         -->
+        <!-- ======================================================== -->
+        <div class="w-full h-[64px] bg-[#00228c] border-t border-[#0048bd] px-6 flex items-center justify-between shrink-0">
+          <div id="footer-title" class="text-[#00e5ff] font-bold text-base tracking-wider uppercase">
+            ENERGY FLOW HUB
+          </div>
+          <!-- 4 Navigation Carousel Dots -->
+          <div class="flex items-center gap-2">
+            <div id="dot-0" class="h-2 rounded-full transition-all duration-300 w-6 bg-[#00e5ff] shadow-[0_0_8px_rgba(0,229,255,0.8)]"></div>
+            <div id="dot-1" class="h-2 rounded-full transition-all duration-300 w-2.5 bg-[#0048bd]"></div>
+            <div id="dot-2" class="h-2 rounded-full transition-all duration-300 w-2.5 bg-[#0048bd]"></div>
+            <div id="dot-3" class="h-2 rounded-full transition-all duration-300 w-2.5 bg-[#0048bd]"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Live Telemetry Interactive Simulator Panel -->
+    <div class="w-full bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+        <h3 class="text-sm font-bold text-slate-200 uppercase tracking-wider">Live Telemetry Adjustment Sliders (Test Simulation)</h3>
+        <span class="text-xs text-slate-400">Move sliders to see screen gauges, colors & values react instantly</span>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div>
+          <label class="flex justify-between text-xs text-slate-400 mb-1">
+            <span>Solar PV Voltage</span>
+            <span id="slider-solar-val" class="font-mono text-cyan-400 font-bold">77.2 V</span>
+          </label>
+          <input type="range" min="0" max="120" step="0.1" value="77.2" class="w-full accent-cyan-500" oninput="updateSolar(this.value)">
+        </div>
+
+        <div>
+          <label class="flex justify-between text-xs text-slate-400 mb-1">
+            <span>Battery Bank Voltage</span>
+            <span id="slider-batt-val" class="font-mono text-cyan-400 font-bold">26.4 V</span>
+          </label>
+          <input type="range" min="20" max="30" step="0.1" value="26.4" class="w-full accent-cyan-500" oninput="updateBatt(this.value)">
+        </div>
+
+        <div>
+          <label class="flex justify-between text-xs text-slate-400 mb-1">
+            <span>Inverter Load Percentage</span>
+            <span id="slider-load-val" class="font-mono text-cyan-400 font-bold">38 %</span>
+          </label>
+          <input type="range" min="0" max="100" step="1" value="38" class="w-full accent-cyan-500" oninput="updateLoad(this.value)">
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- JavaScript Simulator & Navigation Engine -->
+  <script>
+    const pageTitles = [
+      "ENERGY FLOW HUB",
+      "SOLAR PV & CHARGER",
+      "BATTERY & INVERTER LOAD",
+      "SYSTEM OPERATIONAL STATUS"
+    ];
+
+    let currentPage = 0;
+    let autoPlay = true;
+    let timer = null;
+
+    // Model State
+    const telemetry = {
+      solarV: 77.2,
+      mainsV: 228,
+      battV: 26.4,
+      loadPct: 38,
+      acOut: 230,
+      chgAmps: 13.0,
+      heatC: 36.7
+    };
+
+    function setPage(idx) {
+      currentPage = idx;
+      for (let i = 0; i < 4; i++) {
+        const p = document.getElementById(`page-${i}`);
+        const dotEl = document.getElementById(`dot-${i}`);
+        const btnEl = document.getElementById(`btn-p${i}`);
+        if (i === currentPage) {
+          p.classList.remove('hidden');
+          dotEl.className = "h-2 rounded-full transition-all duration-300 w-6 bg-[#00e5ff] shadow-[0_0_8px_rgba(0,229,255,0.8)]";
+          btnEl.className = "page-btn text-xs font-semibold px-3 py-1.5 rounded-lg border bg-cyan-500 text-slate-950 border-cyan-400";
+        } else {
+          p.classList.add('hidden');
+          dotEl.className = "h-2 rounded-full transition-all duration-300 w-2.5 bg-[#0048bd]";
+          btnEl.className = "page-btn text-xs font-semibold px-3 py-1.5 rounded-lg border bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700";
+        }
+      }
+      document.getElementById('footer-title').textContent = pageTitles[currentPage];
+    }
+
+    function toggleAutoPlay() {
+      autoPlay = !autoPlay;
+      const btn = document.getElementById('btn-play');
+      if (autoPlay) {
+        btn.textContent = "Auto 5s: ON";
+        btn.className = "ml-2 text-xs font-semibold px-3 py-1.5 rounded-lg border border-amber-600 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20";
+        startTimer();
+      } else {
+        btn.textContent = "Auto 5s: PAUSED";
+        btn.className = "ml-2 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-600 bg-slate-800 text-slate-400";
+        clearInterval(timer);
+      }
+    }
+
+    function startTimer() {
+      clearInterval(timer);
+      timer = setInterval(() => {
+        if (autoPlay) {
+          setPage((currentPage + 1) % 4);
+        }
+      }, 5000);
+    }
+
+    // Live Telemetry Sliders
+    function updateSolar(val) {
+      telemetry.solarV = parseFloat(val);
+      document.getElementById('slider-solar-val').textContent = telemetry.solarV.toFixed(1) + " V";
+      document.getElementById('val-p0-solar').textContent = telemetry.solarV.toFixed(1) + " V";
+      document.getElementById('val-p1-solar').textContent = telemetry.solarV.toFixed(1) + " V";
+    }
+
+    function updateBatt(val) {
+      telemetry.battV = parseFloat(val);
+      const bPct = Math.min(100, Math.max(0, Math.round(((telemetry.battV - 23.0) / (28.0 - 23.0)) * 100)));
+      document.getElementById('slider-batt-val').textContent = telemetry.battV.toFixed(1) + " V";
+      document.getElementById('val-p0-batt').textContent = telemetry.battV.toFixed(1) + " V";
+      document.getElementById('val-p2-batt').textContent = telemetry.battV.toFixed(1) + " V";
+      document.getElementById('val-p2-bsoc').textContent = `EST. CAPACITY: ${bPct}%`;
+      document.getElementById('bar-p0-batt').style.width = `${bPct}%`;
+      document.getElementById('bar-p2-batt').style.width = `${bPct}%`;
+    }
+
+    function updateLoad(val) {
+      telemetry.loadPct = parseInt(val);
+      document.getElementById('slider-load-val').textContent = telemetry.loadPct + " %";
+      document.getElementById('val-p0-load').textContent = telemetry.loadPct + "% LOAD";
+      document.getElementById('val-p2-load').textContent = telemetry.loadPct + "% LOAD";
+      document.getElementById('bar-p0-load').style.width = `${telemetry.loadPct}%`;
+      document.getElementById('bar-p2-load').style.width = `${telemetry.loadPct}%`;
+    }
+
+    // Live RTC Clock
+    function updateClock() {
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      const ss = String(now.getSeconds()).padStart(2, '0');
+      document.getElementById('rtc-clock').textContent = `${hh}:${mm}:${ss}`;
+    }
+
+    window.clockTimer = setInterval(updateClock, 1000);
+    updateClock();
+    startTimer();
+  </script>
+</body>
+</html>
