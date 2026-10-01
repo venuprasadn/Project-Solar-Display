@@ -1,0 +1,18 @@
+# Target ESP32
+CONFIG_IDF_TARGET="esp32"
+
+# Note: Pin conflict workaround for GPIO 1 (LED) and GPIO 3 (DC)
+# Disable console output to UART so TXD0/RXD0 do not interfere with LCD signals
+CONFIG_ESP_CONSOLE_NONE=y
+
+# FreeRTOS 1000 Hz tick rate for smooth UI rendering
+CONFIG_FREERTOS_HZ=1000
+
+# Optimize for performance
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
+# Enable LVGL typography fonts
+CONFIG_LV_FONT_MONTSERRAT_10=y
+CONFIG_LV_FONT_MONTSERRAT_12=y
+CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_FONT_MONTSERRAT_16=y
