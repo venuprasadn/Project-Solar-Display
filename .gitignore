@@ -1,15 +1,28 @@
-# ESP-IDF build output
+# Visual Studio cache and intermediate files
+.vs/
+*.aps
+*.user
+x64/
+Debug/
+Release/
+ipch/
+*.VC.db
+*.opendb
+
+# ESP-IDF intermediate build directories
 build/
 out/
-.vs/
+Project-ESP32-LCD/build/
+Project-ESP32-LCD/managed_components/
+Project-ESP32-LCD/out/
+Project-ESP32-LCD/.vscode/
 .vscode/
-*.old
-*.tmp
-managed_components/
 
 # Python cache
 __pycache__/
 *.pyc
+*.old
+*.tmp
 
 # Local OS files
 Thumbs.db

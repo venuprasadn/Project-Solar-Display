@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Inverter HMI Serial Telemetry Protocol Specification</title>
+<style>
+  @page {
+    size: A4 portrait;
+    margin: 18mm 14mm 18mm 14mm;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #1e293b;
+    background: #ffffff;
+    line-height: 1.5;
+    font-size: 10pt;
+    margin: 0;
+    padding: 0;
+  }
+  .header-box {
+    border-bottom: 2px solid #0f172a;
+    padding-bottom: 12px;
+    margin-bottom: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+  }
+  .title-group h1 {
+    font-size: 18pt;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0 0 4px 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .title-group h2 {
+    font-size: 11pt;
+    font-weight: 600;
+    color: #0284c7;
+    margin: 0;
+  }
+  .doc-meta {
+    text-align: right;
+    font-size: 8.5pt;
+    color: #64748b;
+  }
+  .doc-meta strong {
+    color: #334155;
+  }
+  h2.section-title {
+    font-size: 12pt;
+    font-weight: 700;
+    color: #0f172a;
+    border-left: 4px solid #0284c7;
+    padding-left: 8px;
+    margin: 22px 0 10px 0;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  h3.sub-title {
+    font-size: 10pt;
+    font-weight: 700;
+    color: #334155;
+    margin: 14px 0 6px 0;
+  }
+  p {
+    margin: 0 0 10px 0;
+    color: #334155;
+  }
+  .highlight-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 14px;
+  }
+  .syntax-badge {
+    background: #0f172a;
+    color: #38bdf8;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-family: "Courier New", Courier, monospace;
+    font-size: 8.5pt;
+    word-break: break-all;
+    margin-bottom: 10px;
+    border-left: 3px solid #38bdf8;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 14px;
+    font-size: 8.5pt;
+  }
+  th {
+    background: #0f172a;
+    color: #ffffff;
+    font-weight: 600;
+    text-align: left;
+    padding: 6px 8px;
+    border: 1px solid #0f172a;
+  }
+  td {
+    padding: 5px 8px;
+    border: 1px solid #cbd5e1;
+    color: #1e293b;
+  }
+  tr:nth-child(even) td {
+    background: #f8fafc;
+  }
+  .code-cell {
+    font-family: "Courier New", Courier, monospace;
+    font-weight: bold;
+    color: #0369a1;
+  }
+  .badge-red {
+    display: inline-block;
+    background: #fee2e2;
+    color: #b91c1c;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 7.5pt;
+    border: 1px solid #f87171;
+  }
+  .badge-amber {
+    display: inline-block;
+    background: #fef3c7;
+    color: #b45309;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 7.5pt;
+    border: 1px solid #fbbf24;
+  }
+  .badge-green {
+    display: inline-block;
+    background: #dcfce7;
+    color: #15803d;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 7.5pt;
+    border: 1px solid #4ade80;
+  }
+  .footer-note {
+    border-top: 1px solid #e2e8f0;
+    margin-top: 24px;
+    padding-top: 8px;
+    font-size: 7.5pt;
+    color: #94a3b8;
+    text-align: center;
+  }
+  .page-break {
+    page-break-before: always;
+  }
+</style>
+</head>
+<body>
+
+<div class="header-box">
+  <div class="title-group">
+    <h1>Inverter HMI Telemetry Protocol</h1>
+    <h2>Serial Interface & Data Transmission Specification</h2>
+  </div>
+  <div class="doc-meta">
+    <div><strong>Doc Ref:</strong> HMI-SPEC-PCU-2026</div>
+    <div><strong>Target HW:</strong> ESP32 LCD Controller</div>
+    <div><strong>Baud:</strong> 9600 bps, 8-N-1</div>
+    <div><strong>Standard:</strong> Industrial Production Grade</div>
+  </div>
+</div>
+
+<div class="highlight-card">
+  <strong>Hardware Interface:</strong> Dedicated UART2 Interface on ESP32 &nbsp;|&nbsp; 
+  <strong>RX Pin:</strong> GPIO 16 &nbsp;|&nbsp; 
+  <strong>TX Pin:</strong> GPIO 17 &nbsp;|&nbsp; 
+  <strong>Electrical:</strong> 3.3V LVTTL / RS-232 Transceiver &nbsp;|&nbsp; 
+  <strong>Framing:</strong> ASCII CRLF (\r\n) Delimited
+</div>
+
+<h2 class="section-title">1. Primary Real-Time Telemetry Stream ($PCU)</h2>
+<p>
+  Transmitted continuously by the solar inverter controller (recommended interval: <strong>1000ms – 2000ms</strong>). 
+  Supports standard 15-parameter and extended 19-parameter formats.
+</p>
+
+<div class="syntax-badge">
+$PCU,&lt;mains&gt;,&lt;solar&gt;,&lt;batt&gt;,&lt;acout&gt;,&lt;load&gt;,&lt;chg&gt;,&lt;disch&gt;,&lt;dc&gt;,&lt;heat&gt;,&lt;onflag&gt;,&lt;solarstate&gt;,&lt;chargerstate&gt;,&lt;dcok&gt;,&lt;sharemode&gt;,&lt;batgravity&gt;[,&lt;switchstate&gt;,&lt;dcboostmode&gt;,&lt;feedmode&gt;,&lt;error_code&gt;]\r\n
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:5%;">#</th>
+      <th style="width:16%;">Field Name</th>
+      <th style="width:10%;">Type</th>
+      <th style="width:8%;">Unit</th>
+      <th style="width:15%;">Valid Range</th>
+      <th>Functional Description & Inverter Engineering Role</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>1</strong></td>
+      <td class="code-cell">mains</td>
+      <td>Float</td>
+      <td>VAC</td>
+      <td>0.0 – 450.0</td>
+      <td>AC Utility Mains Grid RMS Voltage. Triggers grid icon, pass-through, and grid chargers.</td>
+    </tr>
+    <tr>
+      <td><strong>2</strong></td>
+      <td class="code-cell">solar</td>
+      <td>Float</td>
+      <td>VDC</td>
+      <td>0.0 – 250.0</td>
+      <td>Solar PV array DC terminal voltage (MPPT operating voltage or open-circuit Voc).</td>
+    </tr>
+    <tr>
+      <td><strong>3</strong></td>
+      <td class="code-cell">batt</td>
+      <td>Float</td>
+      <td>VDC</td>
+      <td>0.0 – 100.0</td>
+      <td>Battery bank terminal voltage. Drives state-of-charge (SoC) gauges and bars.</td>
+    </tr>
+    <tr>
+      <td><strong>4</strong></td>
+      <td class="code-cell">acout</td>
+      <td>Float</td>
+      <td>VAC</td>
+      <td>0.0 – 450.0</td>
+      <td>Inverter output voltage delivered to connected household/industrial AC loads.</td>
+    </tr>
+    <tr>
+      <td><strong>5</strong></td>
+      <td class="code-cell">load</td>
+      <td>Float</td>
+      <td>%</td>
+      <td>0.0 – 250.0</td>
+      <td>Active inverter load demand as a percentage of rated capacity (100% = Full Rating).</td>
+    </tr>
+    <tr>
+      <td><strong>6</strong></td>
+      <td class="code-cell">chg</td>
+      <td>Float</td>
+      <td>A</td>
+      <td>0.0 – 200.0</td>
+      <td>Battery charging current generated from Solar PV and/or Grid Mains charger stages.</td>
+    </tr>
+    <tr>
+      <td><strong>7</strong></td>
+      <td class="code-cell">disch</td>
+      <td>Float</td>
+      <td>A</td>
+      <td>0.0 – 200.0</td>
+      <td>Battery discharge current supplied to inverter H-bridge during power outages.</td>
+    </tr>
+    <tr>
+      <td><strong>8</strong></td>
+      <td class="code-cell">dc</td>
+      <td>Float</td>
+      <td>VDC</td>
+      <td>0.0 – 600.0</td>
+      <td>Internal high-voltage DC link bus voltage before the sinusoidal bridge.</td>
+    </tr>
+    <tr>
+      <td><strong>9</strong></td>
+      <td class="code-cell">heat</td>
+      <td>Float</td>
+      <td>°C</td>
+      <td>-20.0 – 150.0</td>
+      <td>Power stage MOSFET/IGBT heatsink thermal sensor reading.</td>
+    </tr>
+    <tr>
+      <td><strong>10</strong></td>
+      <td class="code-cell">onflag</td>
+      <td>Integer</td>
+      <td>Binary</td>
+      <td>0 or 1</td>
+      <td>Master inverter system state: <strong>0</strong> = Standby / Inactive, <strong>1</strong> = Inverter System Active.</td>
+    </tr>
+    <tr>
+      <td><strong>11</strong></td>
+      <td class="code-cell">solarstate</td>
+      <td>Integer</td>
+      <td>Enum</td>
+      <td>0 or 1</td>
+      <td>Solar PV array status: <strong>0</strong> = Solar Inactive (Night), <strong>1</strong> = Solar Active (Generating).</td>
+    </tr>
+    <tr>
+      <td><strong>12</strong></td>
+      <td class="code-cell">chargerstate</td>
+      <td>Integer</td>
+      <td>Enum</td>
+      <td>0 – 3</td>
+      <td><strong>0</strong> = Off, <strong>1</strong> = AC Grid Charger, <strong>2</strong> = Solar MPPT Charger, <strong>3</strong> = Shared / Hybrid Charger.</td>
+    </tr>
+    <tr>
+      <td><strong>13</strong></td>
+      <td class="code-cell">dcok</td>
+      <td>Integer</td>
+      <td>Binary</td>
+      <td>0 or 1</td>
+      <td>Internal DC Boost Bus health monitor: <strong>0</strong> = Bus Fault, <strong>1</strong> = Bus Healthy.</td>
+    </tr>
+    <tr>
+      <td><strong>14</strong></td>
+      <td class="code-cell">sharemode</td>
+      <td>Integer</td>
+      <td>Binary</td>
+      <td>0 or 1</td>
+      <td>Power distribution mode: <strong>0</strong> = Standalone Invert, <strong>1</strong> = Smart Hybrid Grid Sharing.</td>
+    </tr>
+    <tr>
+      <td><strong>15</strong></td>
+      <td class="code-cell">batgravity</td>
+      <td>Integer</td>
+      <td>Index</td>
+      <td>0 – 10</td>
+      <td>Electrolyte specific gravity / battery chemical condition index.</td>
+    </tr>
+    <tr>
+      <td><strong>16*</strong></td>
+      <td class="code-cell">switchstate</td>
+      <td>Integer</td>
+      <td>Binary</td>
+      <td>0 or 1</td>
+      <td>Inverter power bridge state: <strong>0</strong> = Bridge Off, <strong>1</strong> = Bridge Active Switching.</td>
+    </tr>
+    <tr>
+      <td><strong>17*</strong></td>
+      <td class="code-cell">dcboostmode</td>
+      <td>Integer</td>
+      <td>Binary</td>
+      <td>0 or 1</td>
+      <td>DC Booster state: <strong>0</strong> = Direct / Bypass, <strong>1</strong> = Active Boost Stage.</td>
+    </tr>
+    <tr>
+      <td><strong>18*</strong></td>
+      <td class="code-cell">feedmode</td>
+      <td>Integer</td>
+      <td>Enum</td>
+      <td>0 – 3</td>
+      <td><strong>0</strong> = Auto Physics, <strong>1</strong> = Solar Priority, <strong>2</strong> = Battery Invert, <strong>3</strong> = Grid Pass.</td>
+    </tr>
+    <tr>
+      <td><strong>19*</strong></td>
+      <td class="code-cell">error_code</td>
+      <td>Integer</td>
+      <td>Enum</td>
+      <td>0 – 40</td>
+      <td>System fault code: <strong>0</strong> = Normal Operation. Any code &gt; 0 triggers Protection Screen.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><em>* Parameters 16 through 19 are optional extended parameters. If omitted, firmware auto-derives states safely.</em></p>
+
+<h3 class="sub-title">Sample $PCU Data Frames</h3>
+<ul>
+  <li><strong>Optimal Solar Daytime Operation:</strong><br>
+    <code>$PCU,230.0,78.5,27.2,230.0,42.0,18.5,0.0,380.0,41.5,1,1,2,1,0,0,1,1,1,0\r\n</code>
+  </li>
+  <li><strong>Night-time Battery Inversion (Mains Grid Outage):</strong><br>
+    <code>$PCU,0.0,0.0,24.6,230.0,55.0,0.0,22.4,360.0,48.0,1,0,0,1,0,0,1,1,2,0\r\n</code>
+  </li>
+  <li><strong>Utility Grid Charging (Rainy / Night):</strong><br>
+    <code>$PCU,228.0,0.0,25.8,228.0,28.0,15.0,0.0,320.0,38.0,1,0,1,1,0,0,1,0,0,0\r\n</code>
+  </li>
+</ul>
+
+<div class="page-break"></div>
+
+<h2 class="section-title">2. Calibration & Safety Limits Stream ($LIMITS / $CFG)</h2>
+<p>
+  Transmitted at system startup or when battery/grid thresholds are configured. 
+  The HMI display controller stores these calibration limits to evaluate trip conditions and display reference lines.
+</p>
+
+<div class="syntax-badge">
+$LIMITS,&lt;setbatful&gt;,&lt;setbatwrn&gt;,&lt;setbatlo&gt;,&lt;setbatrst&gt;,&lt;mainslow&gt;,&lt;mainshi&gt;,&lt;hiheat&gt;,&lt;solmax&gt;,&lt;solmin&gt;,&lt;dcmax&gt;\r\n
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:5%;">#</th>
+      <th style="width:16%;">Field Name</th>
+      <th style="width:8%;">Type</th>
+      <th style="width:8%;">Unit</th>
+      <th style="width:12%;">Default</th>
+      <th style="width:16%;">Calibration Range</th>
+      <th>Engineering Definition & Role</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>1</strong></td>
+      <td class="code-cell">setbatful</td>
+      <td>Float</td>
+      <td>VDC</td>
+      <td>28.8 V</td>
+      <td>24.0 – 32.0 V</td>
+      <td>Battery Absorption / Float target voltage threshold.</td>
+    </tr>
+    <tr>
+      <td><strong>2</strong></td>
+      <td class="code-cell">setbatwrn</td>
+      <td>Float</td>
+      <td>VDC</td>
+      <td>22.0 V</td>
+      <td>21.0 – 24.0 V</td>
+      <td>Battery Low Warning advisory threshold.</td>
+    </tr>
+    <tr>
+      <td><strong>3</strong></td>
+      <td class="code-cell">setbatlo</td>
+      <td>Float</td>
+      <td>VDC</td>
+      <td>21.0 V</td>
+      <td>19.0 – 22.0 V</td>
+      <td>Battery Deep Discharge Cutoff trip limit (protects cells).</td>
+    </tr>
+    <tr>
+      <td><strong>4</strong></td>
+      <td class="code-cell">setbatrst</td>
+      <td>Float</td>
+      <td>VDC</td>
+      <td>24.5 V</td>
+      <td>23.0 – 26.0 V</td>
+      <td>Battery Cutoff Reset / Reconnect voltage threshold.</td>
+    </tr>
+    <tr>
+      <td><strong>5</strong></td>
+      <td class="code-cell">mainslow</td>
+      <td>Float</td>
+      <td>VAC</td>
+      <td>185 VAC</td>
+      <td>150 – 200 VAC</td>
+      <td>AC Utility Grid Low Cutoff Voltage. Below this, mains trips.</td>
+    </tr>
+    <tr>
+      <td><strong>6</strong></td>
+      <td class="code-cell">mainshi</td>
+      <td>Float</td>
+      <td>VAC</td>
+      <td>265 VAC</td>
+      <td>240 – 290 VAC</td>
+      <td>AC Utility Grid High Surge Cutoff Voltage.</td>
+    </tr>
+    <tr>
+      <td><strong>7</strong></td>
+      <td class="code-cell">hiheat</td>
+      <td>Float</td>
+      <td>°C</td>
+      <td>85.0 °C</td>
+      <td>65.0 – 105.0 °C</td>
+      <td>Power stage thermal shutdown trip limit.</td>
+    </tr>
+    <tr>
+      <td><strong>8</strong></td>
+      <td class="code-cell">solmax</td>
+      <td>Float</td>
+      <td>VDC</td>
+      <td>115.0 V</td>
+      <td>80.0 – 220.0 V</td>
+      <td>Solar PV array maximum open-circuit voltage ($V_{oc}$).</td>
+    </tr>
+    <tr>
+      <td><strong>9</strong></td>
+      <td class="code-cell">solmin</td>
+      <td>Float</td>
+      <td>VDC</td>
+      <td>30.0 V</td>
+      <td>15.0 – 60.0 V</td>
+      <td>Solar PV minimum MPPT wake-up threshold.</td>
+    </tr>
+    <tr>
+      <td><strong>10</strong></td>
+      <td class="code-cell">dcmax</td>
+      <td>Float</td>
+      <td>VDC</td>
+      <td>410.0 V</td>
+      <td>350.0 – 550.0 V</td>
+      <td>Internal DC link bus maximum overvoltage trip threshold.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><em>* Auto-Scaling Guard: If integer representations are sent (e.g. <code>288</code> for 28.8V), the parser automatically divides by 10.</em></p>
+
+<h3 class="sub-title">Sample $LIMITS String</h3>
+<div class="syntax-badge">
+$LIMITS,28.8,22.0,21.0,24.5,185.0,265.0,85.0,115.0,30.0,410.0\r\n
+</div>
+
+<h2 class="section-title">3. Dedicated Protection & Fault Control ($FAULT / $ERR)</h2>
+<p>
+  When any fault code &gt; 0 is received, the HMI carousel immediately freezes and locks onto the 
+  <strong>Dedicated Theme-Independent Alert Red Protection Screen</strong>. Sending <code>0</code> clears the fault.
+</p>
+
+<div class="syntax-badge">
+$FAULT,&lt;code&gt;\r\n &nbsp;&nbsp;&nbsp;&nbsp;<em>(e.g., $FAULT,4 to trip on Inverter Overload)</em>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:8%;">Code</th>
+      <th style="width:22%;">Severity & Status</th>
+      <th style="width:32%;">Screen Display Title (Bold 20pt)</th>
+      <th>Offending Value & Limit Rendered on Screen</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="code-cell">0</td>
+      <td><span class="badge-green">FAULT CLEARED</span></td>
+      <td><em>Resumes normal carousel</em></td>
+      <td>Restores active dashboard page automatically.</td>
+    </tr>
+    <tr>
+      <td class="code-cell">1</td>
+      <td><span class="badge-red">CRITICAL HARD TRIP</span></td>
+      <td>OUTPUT SHORT CIRCUIT</td>
+      <td><code>SHORT DETECTED</code> | Limit: <code>OUTPUT IMPEDANCE VIOLATION</code></td>
+    </tr>
+    <tr>
+      <td class="code-cell">2</td>
+      <td><span class="badge-red">PROTECTION TRIP</span></td>
+      <td>AC MAINS FEED LOSS</td>
+      <td><code>&lt;mains&gt; VAC</code> | Limit: <code>NORMAL LIMIT: 185V - 265V</code></td>
+    </tr>
+    <tr>
+      <td class="code-cell">3</td>
+      <td><span class="badge-red">THERMAL SHUTDOWN</span></td>
+      <td>HEATSINK OVERTEMPERATURE</td>
+      <td><code>&lt;heat&gt; °C</code> | Limit: <code>MAX SAFETY LIMIT: 85 °C</code></td>
+    </tr>
+    <tr>
+      <td class="code-cell">4</td>
+      <td><span class="badge-red">CAPACITY TRIP</span></td>
+      <td>INVERTER OVERLOAD</td>
+      <td><code>&lt;load&gt; % LOAD</code> | Limit: <code>MAX RATED CAPACITY: 100 %</code></td>
+    </tr>
+    <tr>
+      <td class="code-cell">5</td>
+      <td><span class="badge-red">DC BUS TRIP</span></td>
+      <td>DC BUS UNDERVOLTAGE</td>
+      <td><code>&lt;dc&gt; VDC</code> | Limit: <code>MINIMUM BUS LIMIT: 280 V</code></td>
+    </tr>
+    <tr>
+      <td class="code-cell">6</td>
+      <td><span class="badge-red">INRUSH CURRENT</span></td>
+      <td>OUTPUT CURRENT OVERLOAD</td>
+      <td><code>&lt;load&gt; % PEAK</code> | Limit: <code>CYCLE-BY-CYCLE CURRENT LIMIT</code></td>
+    </tr>
+    <tr>
+      <td class="code-cell">7</td>
+      <td><span class="badge-red">SOLAR OVERVOLT</span></td>
+      <td>SOLAR PV OVERVOLTAGE</td>
+      <td><code>&lt;solar&gt; VDC</code> | Limit: <code>MAX ARRAY LIMIT: 115 V</code></td>
+    </tr>
+    <tr>
+      <td class="code-cell">8</td>
+      <td><span class="badge-red">DC BUS OVERVOLT</span></td>
+      <td>DC BUS OVERVOLTAGE</td>
+      <td><code>&lt;dc&gt; VDC</code> | Limit: <code>MAXIMUM DC CEILING: 410 V</code></td>
+    </tr>
+    <tr>
+      <td class="code-cell">9</td>
+      <td><span class="badge-red">HARDWARE FAULT</span></td>
+      <td>DC BOOST STAGE FAILURE</td>
+      <td><code>&lt;dc&gt; VDC</code> | Limit: <code>BOOST CONVERTER REGULATION FAULT</code></td>
+    </tr>
+    <tr>
+      <td class="code-cell">20</td>
+      <td><span class="badge-amber">SYSTEM ADVISORY</span></td>
+      <td>LOAD CAPACITY WARNING</td>
+      <td><code>&lt;load&gt; % LOAD</code> | Limit: <code>WARNING THRESHOLD: 85 %</code></td>
+    </tr>
+    <tr>
+      <td class="code-cell">30</td>
+      <td><span class="badge-amber">SYSTEM ADVISORY</span></td>
+      <td>BATTERY VOLTAGE LOW</td>
+      <td><code>&lt;batt&gt; VDC</code> | Limit: <code>WARNING THRESHOLD: 22.0 V</code></td>
+    </tr>
+    <tr>
+      <td class="code-cell">40</td>
+      <td><span class="badge-red">BATTERY SHUTDOWN</span></td>
+      <td>BATTERY CUTOFF TRIP</td>
+      <td><code>&lt;batt&gt; VDC</code> | Limit: <code>CUTOFF THRESHOLD: 21.0 V</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 class="section-title">4. Manual Page Navigation Command ($PAGE)</h2>
+<p>Directs the display controller to immediately present a specific dashboard screen:</p>
+<div class="syntax-badge">
+$PAGE,&lt;0-5&gt;\r\n &nbsp;&nbsp;&nbsp;&nbsp;<em>(e.g., $PAGE,1 to switch to Solar PV & Charger Page)</em>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:10%;">Page #</th>
+      <th style="width:30%;">Screen Title</th>
+      <th>Primary Widgets & Metrics Displayed</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="code-cell">0</td>
+      <td>ENERGY FLOW HUB</td>
+      <td>Live animated system power flow: Solar, Grid Mains, Battery bank, Inverter AC load.</td>
+    </tr>
+    <tr>
+      <td class="code-cell">1</td>
+      <td>SOLAR PV & CHARGER</td>
+      <td>Solar array voltage, charging current, MPPT active status badge, solar mode.</td>
+    </tr>
+    <tr>
+      <td class="code-cell">2</td>
+      <td>BATTERY & INVERTER LOAD</td>
+      <td>Battery terminal voltage, battery discharge Amps, active load percentage bar.</td>
+    </tr>
+    <tr>
+      <td class="code-cell">3</td>
+      <td>OPERATIONAL STATUS</td>
+      <td>Grid synchronism status, DC boost bus voltage, heatsink thermal sensor reading.</td>
+    </tr>
+    <tr>
+      <td class="code-cell">4</td>
+      <td>HARVEST & PRODUCTION</td>
+      <td>Solar energy yield (kWh counters) and historical 8-hour live line chart.</td>
+    </tr>
+    <tr>
+      <td class="code-cell">5</td>
+      <td>OEM VENDOR & SUPPORT</td>
+      <td>Hardware model, firmware release build, technical support contacts, custom OEM logo.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="footer-note">
+  Solar Inverter HMI Embedded System Specification &bull; Confidential & Proprietary &bull; Revision 1.0 &bull; Industrial Production Grade
+</div>
+
+</body>
+</html>
