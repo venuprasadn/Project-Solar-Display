@@ -18,6 +18,7 @@
 #include <sys/time.h>
 #include <math.h>
 #include <sys/lock.h>
+#include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_timer.h"
@@ -618,11 +619,17 @@ static void increase_lvgl_tick(void *arg)
 
 static void lvgl_port_task(void *arg)
 {
+    /* Subscribe this task to the Task Watchdog Timer (industrial safety net) */
+    esp_task_wdt_add(NULL);
+
     uint32_t time_till_next_ms = 0;
     while (1) {
         _lock_acquire(&lvgl_api_lock);
         time_till_next_ms = lv_timer_handler();
         _lock_release(&lvgl_api_lock);
+
+        /* Feed watchdog — proves LVGL render loop is alive */
+        esp_task_wdt_reset();
 
         if (time_till_next_ms < 10) {
             time_till_next_ms = 10;
@@ -942,8 +949,8 @@ static void telemetry_refresh_timer_cb(lv_timer_t *timer)
     }
 
     /* 2. Simulation dynamics if no live serial packet arrived */
-    static int sim_tick = 0;
-    sim_tick++;
+    static uint32_t sim_tick = 0;
+    sim_tick = (sim_tick + 1) & 0x7FFFFFFFU;  /* Clean wrap-around, no signed overflow */
     if (!inv_data.live_serial_active) {
         inv_data.solarvolt = 75.0f + 2.5f * sinf((float)sim_tick * 0.1f);
         inv_data.battvolts = 26.6f + 0.3f * sinf((float)sim_tick * 0.05f);
@@ -1513,6 +1520,7 @@ static void telemetry_refresh_timer_cb(lv_timer_t *timer)
     /* --- Page 4 Updates (Past 8-Hour Line Graph Live Telemetry) --- */
     static float today_kwh_accum = 14.8f;
     today_kwh_accum += 0.001f;
+    if (today_kwh_accum > 9999.9f) today_kwh_accum = 9999.9f;  /* Clamp to prevent float precision loss */
     snprintf(buf, sizeof(buf), "%.1f kWh", today_kwh_accum);
     if (p4_today_kwh) lv_label_set_text(p4_today_kwh, buf);
 
@@ -1764,7 +1772,7 @@ static void build_page_1(lv_obj_t *parent)
     lv_arc_set_bg_angles(p1_sun_arc, 0, 360);
     lv_arc_set_value(p1_sun_arc, 35);
     lv_obj_remove_style(p1_sun_arc, NULL, LV_PART_KNOB);
-    lv_obj_set_clickable(p1_sun_arc, false);
+    lv_obj_remove_flag(p1_sun_arc, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_style_arc_color(p1_sun_arc, lv_color_hex(th->card_border), LV_PART_MAIN);
     lv_obj_set_style_arc_color(p1_sun_arc, lv_color_hex(th->primary), LV_PART_INDICATOR);
     lv_obj_set_style_arc_width(p1_sun_arc, 3, LV_PART_MAIN);
@@ -2509,6 +2517,7 @@ static void build_boot_screen(lv_obj_t *boot_scr, lv_obj_t *main_scr)
     boot_elapsed_ms = 0;
     boot_total_ms = (int)g_pcu_cfg.boot_duration_sec * 1000;
     if (boot_total_ms < 1000) boot_total_ms = 3000;
+    if (boot_total_ms > 10000) boot_total_ms = 3000;  /* Cap at 10s to prevent overflow from corrupted config */
 
     const pcu_theme_t *th = get_active_theme();
     lv_color_t primary_color = lv_color_hex(th->primary);
@@ -2668,17 +2677,17 @@ static void parse_and_apply_telemetry_line(const char *line_buf)
             inv_data.dischdisp = disch_a;
             inv_data.dcboost = dc_b;
             inv_data.upsheat = heat;
-            inv_data.onflag = on_f;
-            inv_data.solarstate = (solar_state_t)s_state;
-            inv_data.chargerstate = (charger_state_t)chg_state;
-            inv_data.dcok = dc_ok;
-            inv_data.sharemode = s_mode;
-            inv_data.batgravity = b_grav;
-            if (count >= 16) inv_data.switchstate = (switch_state_t)sw_state;
+            inv_data.onflag = (on_f == 1) ? 1 : 0;
+            inv_data.solarstate = (s_state == 1) ? SOLARON : SOLAR_OFF;
+            inv_data.chargerstate = (chg_state >= 0 && chg_state <= 3) ? (charger_state_t)chg_state : CHARGER_OFF;
+            inv_data.dcok = (dc_ok == 1) ? 1 : 0;
+            inv_data.sharemode = (s_mode == 1) ? 1 : 0;
+            inv_data.batgravity = (b_grav == 1) ? 1 : 0;
+            if (count >= 16) inv_data.switchstate = (sw_state == 1) ? INVSWITCH : INV_OFF;
             else inv_data.switchstate = (on_f == 1 ? INVSWITCH : INV_OFF);
-            if (count >= 17) inv_data.dcboostmode = dc_b_mode;
+            if (count >= 17) inv_data.dcboostmode = (dc_b_mode == 1) ? 1 : 0;
             else inv_data.dcboostmode = (dc_b > 50.0f || dc_ok);
-            if (count >= 18) inv_data.feedmode = feed_mode;
+            if (count >= 18) inv_data.feedmode = (feed_mode >= 0 && feed_mode <= 4) ? feed_mode : 0;
             else inv_data.feedmode = 0; // Auto by physics
             if (count >= 19) inv_data.error_code = err_c;
             else inv_data.error_code = 0;
@@ -2719,31 +2728,28 @@ static void parse_and_apply_telemetry_line(const char *line_buf)
                      pcu_limits.mainslow, pcu_limits.mainshi, pcu_limits.solmax);
         }
     }
-    /* Dedicated Fault Code Command: $FAULT,<code> or $ERR,<code> */
+    /* Dedicated Fault Code Command: $FAULT,<code> or $ERR,<code>
+     * SAFETY: Only set error_code here. Screen switching is handled by
+     * telemetry_refresh_timer_cb() in LVGL timer context (thread-safe). */
     else if (strncmp(line_buf, "$FAULT,", 7) == 0 || strncmp(line_buf, "$ERR,", 5) == 0) {
         const char *p = (line_buf[1] == 'F') ? line_buf + 7 : line_buf + 5;
-        int f_code = atoi(p);
+        char *endptr = NULL;
+        long f_code = strtol(p, &endptr, 10);
+        if (endptr == p) return;  /* No valid digits — reject malformed input (M7) */
         _lock_acquire(&lvgl_api_lock);
-        inv_data.error_code = f_code;
-        if (f_code != 0) {
-            if (g_error_scr && lv_screen_active() != g_error_scr) {
-                lv_screen_load(g_error_scr);
-            }
-            update_error_screen(f_code);
-        } else {
-            if (g_error_scr && lv_screen_active() == g_error_scr && g_main_screen_obj) {
-                lv_screen_load(g_main_screen_obj);
-                switch_to_page(current_page);
-            }
-        }
+        inv_data.error_code = (int)f_code;
         _lock_release(&lvgl_api_lock);
     }
     /* Manual page switch command: $PAGE,0-5 */
     else if (strncmp(line_buf, "$PAGE,", 6) == 0) {
-        int p = atoi(&line_buf[6]);
-        _lock_acquire(&lvgl_api_lock);
-        switch_to_page(p);
-        _lock_release(&lvgl_api_lock);
+        char *endptr = NULL;
+        long p = strtol(&line_buf[6], &endptr, 10);
+        if (endptr == &line_buf[6]) return;  /* No valid digits — reject */
+        if (p >= 0 && p < TOTAL_PAGES) {
+            _lock_acquire(&lvgl_api_lock);
+            switch_to_page((int)p);
+            _lock_release(&lvgl_api_lock);
+        }
     }
 }
 
@@ -2760,16 +2766,24 @@ static void inverter_uart_task(void *arg)
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
         .source_clk = UART_SCLK_DEFAULT,
     };
-    uart_param_config(INVERTER_UART_NUM, &uart_config);
-    uart_set_pin(INVERTER_UART_NUM, INVERTER_UART_TX_PIN, INVERTER_UART_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-    uart_driver_install(INVERTER_UART_NUM, 1024, 0, 0, NULL, 0);
+    ESP_ERROR_CHECK(uart_param_config(INVERTER_UART_NUM, &uart_config));
+    ESP_ERROR_CHECK(uart_set_pin(INVERTER_UART_NUM, INVERTER_UART_TX_PIN, INVERTER_UART_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+    ESP_ERROR_CHECK(uart_driver_install(INVERTER_UART_NUM, 1024, 0, 0, NULL, 0));
+
+    /* Subscribe to Task Watchdog Timer (industrial fault recovery) */
+    esp_task_wdt_add(NULL);
 
     uint8_t rx_byte;
     char line_buf[160];
     int line_idx = 0;
+    uint32_t line_start_tick = 0;  /* Tick when first byte of current line was received */
 
     while (1) {
         int len = uart_read_bytes(INVERTER_UART_NUM, &rx_byte, 1, pdMS_TO_TICKS(50));
+
+        /* Feed watchdog — proves UART task is alive */
+        esp_task_wdt_reset();
+
         if (len > 0) {
             if (rx_byte == '\n' || rx_byte == '\r') {
                 if (line_idx > 0) {
@@ -2778,7 +2792,20 @@ static void inverter_uart_task(void *arg)
                     line_idx = 0;
                 }
             } else if (line_idx < (int)sizeof(line_buf) - 1) {
+                if (line_idx == 0) {
+                    line_start_tick = (uint32_t)(xTaskGetTickCount());
+                }
                 line_buf[line_idx++] = (char)rx_byte;
+            }
+            /* else: byte dropped (buffer full, waiting for newline) */
+        }
+
+        /* Line timeout guard: if partial line sits >500ms without newline,
+         * reset buffer to prevent permanent parser stall from noise/corruption */
+        if (line_idx > 0) {
+            uint32_t elapsed_ms = (uint32_t)(xTaskGetTickCount() - line_start_tick) * portTICK_PERIOD_MS;
+            if (elapsed_ms > 500) {
+                line_idx = 0;  /* Discard stale partial line */
             }
         }
     }
@@ -2908,7 +2935,34 @@ static void handle_hrf_command(const hrf_header_t *hdr, const uint8_t *payload)
         }
         case CMD_WRITE_CONFIG: {
             if (hdr->length == sizeof(pcu_config_t)) {
-                memcpy(&g_pcu_cfg, payload, sizeof(pcu_config_t));
+                pcu_config_t incoming_cfg;
+                memcpy(&incoming_cfg, payload, sizeof(pcu_config_t));
+
+                /* Validate magic and version to reject corrupted payloads (C4) */
+                if (incoming_cfg.magic != PCU_CONFIG_MAGIC || incoming_cfg.version != PCU_CONFIG_VERSION) {
+                    send_ack_response(hdr->seq, hdr->cmd, ERR_INVALID_MAGIC, 0);
+                    break;
+                }
+
+                /* Force null-terminate all string fields to prevent strlen overrun (IEC 62443) */
+                incoming_cfg.brand_title[sizeof(incoming_cfg.brand_title) - 1] = '\0';
+                incoming_cfg.model_name[sizeof(incoming_cfg.model_name) - 1] = '\0';
+                incoming_cfg.serial_number[sizeof(incoming_cfg.serial_number) - 1] = '\0';
+                incoming_cfg.hardware_version[sizeof(incoming_cfg.hardware_version) - 1] = '\0';
+                incoming_cfg.vendor_contact[sizeof(incoming_cfg.vendor_contact) - 1] = '\0';
+                incoming_cfg.vendor_website[sizeof(incoming_cfg.vendor_website) - 1] = '\0';
+
+                /* Clamp numeric fields to sane ranges */
+                if (incoming_cfg.boot_duration_sec < 1 || incoming_cfg.boot_duration_sec > 10)
+                    incoming_cfg.boot_duration_sec = 3;
+                if (incoming_cfg.carousel_interval_sec < 3 || incoming_cfg.carousel_interval_sec > 30)
+                    incoming_cfg.carousel_interval_sec = 5;
+                if (incoming_cfg.backlight_brightness < 10 || incoming_cfg.backlight_brightness > 100)
+                    incoming_cfg.backlight_brightness = 100;
+                if (incoming_cfg.logo_theme > 5)
+                    incoming_cfg.logo_theme = 0;
+
+                memcpy(&g_pcu_cfg, &incoming_cfg, sizeof(pcu_config_t));
                 send_ack_response(hdr->seq, hdr->cmd, STATUS_OK, 0);
             } else {
                 send_ack_response(hdr->seq, hdr->cmd, ERR_PAYLOAD_SIZE, hdr->length);
@@ -3014,6 +3068,9 @@ static void handle_hrf_command(const hrf_header_t *hdr, const uint8_t *payload)
 
 static void usb_service_task(void *pvParameters)
 {
+    /* Subscribe to Task Watchdog Timer (industrial fault recovery) */
+    esp_task_wdt_add(NULL);
+
     uint8_t rx_buf[64];
     int state = 0;
     hrf_header_t hdr;
@@ -3023,10 +3080,24 @@ static void usb_service_task(void *pvParameters)
 
     char text_line_buf[160];
     int text_line_idx = 0;
+    uint32_t text_line_start_tick = 0;  /* For line timeout guard (C3) */
 
     while (1) {
         int len = uart_read_bytes(SERVICE_UART_NUM, rx_buf, sizeof(rx_buf), pdMS_TO_TICKS(50));
-        if (len <= 0) continue;
+
+        /* Feed watchdog — proves USB service task is alive */
+        esp_task_wdt_reset();
+
+        if (len <= 0) {
+            /* Text line timeout guard: discard stale partial line after 500ms (C3) */
+            if (text_line_idx > 0) {
+                uint32_t elapsed_ms = (uint32_t)(xTaskGetTickCount() - text_line_start_tick) * portTICK_PERIOD_MS;
+                if (elapsed_ms > 500) {
+                    text_line_idx = 0;
+                }
+            }
+            continue;
+        }
 
         for (int i = 0; i < len; i++) {
             uint8_t rx_byte = rx_buf[i];
@@ -3046,7 +3117,11 @@ static void usb_service_task(void *pvParameters)
                     } else if (rx_byte == '$') {
                         text_line_buf[0] = '$';
                         text_line_idx = 1;
+                        text_line_start_tick = (uint32_t)(xTaskGetTickCount());
                     } else if (text_line_idx < (int)sizeof(text_line_buf) - 1) {
+                        if (text_line_idx == 0) {
+                            text_line_start_tick = (uint32_t)(xTaskGetTickCount());
+                        }
                         text_line_buf[text_line_idx++] = (char)rx_byte;
                     }
                     continue;
@@ -3095,13 +3170,23 @@ static void usb_service_task(void *pvParameters)
                     break;
                 case 5:
                     if (rx_byte == HRF_FRAME_TRAILER) {
-                        uint8_t vbuf[sizeof(hrf_header_t) + HRF_MAX_PAYLOAD_SIZE];
-                        memcpy(vbuf, &hdr, sizeof(hrf_header_t));
-                        if (hdr.length > 0) {
-                            memcpy(vbuf + sizeof(hrf_header_t), payload, hdr.length);
+                        /* Compute CRC incrementally over hdr + payload without
+                         * allocating a 520-byte intermediate buffer (H5) */
+                        uint32_t calc_crc = 0xFFFFFFFF;
+                        const uint8_t *hdr_bytes = (const uint8_t *)&hdr;
+                        for (size_t ci = 0; ci < sizeof(hrf_header_t); ci++) {
+                            calc_crc ^= hdr_bytes[ci];
+                            for (int cj = 0; cj < 8; cj++)
+                                calc_crc = (calc_crc & 1) ? (calc_crc >> 1) ^ 0xEDB88320 : calc_crc >> 1;
                         }
-                        uint32_t calc = pcu_calc_crc32(vbuf, sizeof(hrf_header_t) + hdr.length);
-                        if (calc == rx_crc) {
+                        for (size_t ci = 0; ci < hdr.length; ci++) {
+                            calc_crc ^= payload[ci];
+                            for (int cj = 0; cj < 8; cj++)
+                                calc_crc = (calc_crc & 1) ? (calc_crc >> 1) ^ 0xEDB88320 : calc_crc >> 1;
+                        }
+                        calc_crc ^= 0xFFFFFFFF;
+
+                        if (calc_crc == rx_crc) {
                             handle_hrf_command(&hdr, payload);
                         } else {
                             send_ack_response(hdr.seq, hdr.cmd, ERR_CRC_MISMATCH, 0);
@@ -3157,8 +3242,18 @@ void app_main(void)
         configured = true;
     }
 
-    /* Launch USB Service Task on Core 0 so PC tool can communicate 24/7 simultaneously */
-    xTaskCreatePinnedToCore(usb_service_task, "USB_SVC", 4096, NULL, 3, NULL, 0);
+    /* Initialize Task Watchdog Timer (TWDT) for 5-second hardware/task hang recovery (H1) */
+    esp_task_wdt_config_t twdt_config = {
+        .timeout_ms = 5000,
+        .idle_core_mask = 0,
+        .trigger_panic = true,
+    };
+    if (esp_task_wdt_init(&twdt_config) == ESP_ERR_INVALID_STATE) {
+        esp_task_wdt_reconfigure(&twdt_config);
+    }
+
+    /* Launch USB Service Task on Core 0 with 6144 bytes stack (C2 fix) */
+    xTaskCreatePinnedToCore(usb_service_task, "USB_SVC", 6144, NULL, 3, NULL, 0);
 
     /* 1. Set Initial RTC Clock time (2026-10-01 00:00:00) */
     struct timeval tv = {
