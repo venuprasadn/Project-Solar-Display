@@ -33,6 +33,8 @@
 #include "esp_flash.h"
 #include "esp_err.h"
 #include "nvs_flash.h"
+#include "wifi_manager.h"
+#include "aws_iot_client.h"
 #include "nvs.h"
 #include "lvgl.h"
 #include "assets/icons.h"
@@ -3367,5 +3369,28 @@ void app_main(void)
     if (configured) {
         xTaskCreatePinnedToCore(inverter_uart_task, "INV_UART", 4096, NULL, 3, NULL, 0);
     }
+
+    /* 11. Initialize Industrial Wi-Fi & AWS IoT Core Telemetry (Core 0, non-blocking) */
+    wifi_manager_init();
+    aws_iot_client_init();
 }
+
+/* Thread-safe telemetry snapshot for AWS IoT Core publisher */
+void get_inverter_data_snapshot(inverter_telemetry_snapshot_t *snap)
+{
+    if (!snap) return;
+    _lock_acquire(&lvgl_api_lock);
+    snap->mainsvolt   = inv_data.mainsvolt;
+    snap->solarvolt   = inv_data.solarvolt;
+    snap->battvolts   = inv_data.battvolts;
+    snap->acout       = inv_data.acout;
+    snap->loaddisp    = inv_data.loaddisp;
+    snap->chrampsdisp = inv_data.chrampsdisp;
+    snap->dischdisp   = inv_data.dischdisp;
+    snap->dcboost     = inv_data.dcboost;
+    snap->upsheat     = inv_data.upsheat;
+    snap->error_code  = inv_data.error_code;
+    _lock_release(&lvgl_api_lock);
+}
+
 
