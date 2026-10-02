@@ -128,10 +128,10 @@ bool CEspFlasher::FlashFirmware(
     CString cmdLine;
     if (hasLogo) {
         if (progressCallback) {
-            progressCallback(0, CString(_T("Custom logo binary detected: ")) + logoBin + _T(" (Flashing to 0x110000)"));
+            progressCallback(0, CString(_T("Custom logo binary detected: ")) + logoBin + _T(" (Flashing to 0x190000)"));
         }
         cmdLine.Format(
-            _T("\"%s\" --chip esp32 -p %s -b %lu --before default-reset --after hard-reset write-flash --flash-mode dio --flash-size 2MB --flash-freq 40m 0x1000 \"%s\" 0x8000 \"%s\" 0x10000 \"%s\" 0x110000 \"%s\""),
+            _T("\"%s\" --chip esp32 -p %s -b %lu --before default-reset --after hard-reset write-flash --flash-mode dio --flash-size 2MB --flash-freq 40m 0x1000 \"%s\" 0x8000 \"%s\" 0x10000 \"%s\" 0x190000 \"%s\""),
             (LPCTSTR)esptoolExe,
             (LPCTSTR)cleanPort,
             baudRate,

@@ -26,7 +26,7 @@
 #define CMD_CLEAR_LOGO          0x0A
 
 #define PCU_LOGO_MAGIC          0x474F4C50  // 'PLOG'
-#define PCU_LOGO_FLASH_ADDR     0x110000
+#define PCU_LOGO_FLASH_ADDR     0x190000
 
 typedef struct {
     uint32_t magic;         // PCU_LOGO_MAGIC
