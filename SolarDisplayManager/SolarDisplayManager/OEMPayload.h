@@ -12,7 +12,7 @@
 
 // Active Pre-Compilation Configuration Switch
 #ifndef ACTIVE_OEM_HW_MODE
-#define ACTIVE_OEM_HW_MODE OEM_HW_MODE_TFT_ONLY
+#define ACTIVE_OEM_HW_MODE OEM_HW_MODE_COMBO
 #endif
 
 class OEMPayload

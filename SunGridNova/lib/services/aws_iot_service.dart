@@ -197,6 +197,18 @@ sIKWsND+n2baMuNRP4YsidGtQRODK9IBbw==
     }
   }
 
+  void publishMessage(String topic, String payload) {
+    if (_client == null || _status != AwsConnectionStatus.connected) return;
+    try {
+      final builder = MqttClientPayloadBuilder();
+      builder.addString(payload);
+      _client!.publishMessage(topic, MqttQos.atLeastOnce, builder.payload!);
+      debugPrint('📤 [AwsIotService] Published to $topic: $payload');
+    } catch (e) {
+      debugPrint('Error publishing message: $e');
+    }
+  }
+
   void _startPresenceHeartbeat() {
     _stopPresenceHeartbeat();
     _publishPresence();

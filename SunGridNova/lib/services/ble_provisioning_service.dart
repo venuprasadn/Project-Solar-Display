@@ -242,6 +242,26 @@ class BleProvisioningService {
     }
   }
 
+  Future<bool> factoryReset() async {
+    if (_rxChar == null || _connectedDevice == null) {
+      _statusMessageController.add('Error: No inverter connected over BLE.');
+      return false;
+    }
+
+    _statusMessageController.add('🚨 Sending Factory Reset command to inverter...');
+    try {
+      await _rxChar!.write(utf8.encode('FACTORY_RESET'), withoutResponse: false);
+      _statusMessageController.add('🔄 Factory reset command sent. Inverter is erasing flash and rebooting...');
+      _isProvisionedController.add(false);
+      _inverterIp = null;
+      _inverterSsid = null;
+      return true;
+    } catch (e) {
+      _statusMessageController.add('Failed to send factory reset: $e');
+      return false;
+    }
+  }
+
   Future<void> disconnect() async {
     _txNotifySub?.cancel();
     _scanSub?.cancel();

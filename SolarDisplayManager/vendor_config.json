@@ -6,8 +6,8 @@
   "serial_prefix": "123456789",
   "vendor_contact": "0901121231-1",
   "vendor_website": "sdad.asdsad.sd",
-  "hardware_mode": "TFT_ONLY",
-  "default_theme": 3,
+  "hardware_mode": "COMBO",
+  "default_theme": 2,
   "default_boot_sec": 3,
   "default_carousel_sec": 5,
   "logo_png_path": "logo.png"

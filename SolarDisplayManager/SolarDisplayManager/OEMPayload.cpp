@@ -59,7 +59,7 @@ CString OEMPayload::GetModeDescription()
 #endif
 }
 
-uint8_t OEMPayload::GetDefaultTheme()         { return 3; }
+uint8_t OEMPayload::GetDefaultTheme()         { return 2; }
 uint8_t OEMPayload::GetDefaultBootSec()       { return 3; }
 uint8_t OEMPayload::GetDefaultCarouselSec()   { return 5; }
 uint8_t OEMPayload::GetTargetHardwareMode()   { return ACTIVE_OEM_HW_MODE; }

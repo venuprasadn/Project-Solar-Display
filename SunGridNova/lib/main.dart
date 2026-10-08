@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -1884,8 +1885,99 @@ class _ProvisioningScreenState extends State<ProvisioningScreen> with WidgetsBin
                           ),
                   ),
                 ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () => _confirmFactoryReset(context),
+                    icon: const Icon(CupertinoIcons.trash_fill, size: 16, color: Color(0xFFEF4444)),
+                    label: const Text(
+                      'FACTORY RESET INVERTER',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFEF4444)),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Color(0xFF991B1B), width: 1.2),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmFactoryReset(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF0F172A),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: Color(0xFFEF4444), width: 1.5),
+        ),
+        title: const Row(
+          children: [
+            Icon(CupertinoIcons.exclamationmark_triangle_fill, color: Color(0xFFEF4444), size: 22),
+            SizedBox(width: 8),
+            Text('Factory Reset Inverter', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: const Text(
+          'Are you sure you want to factory reset this SunGridNova Inverter?\n\n'
+          '• Erases all saved Wi-Fi credentials.\n'
+          '• Clears AWS Cloud provisioning tokens.\n'
+          '• Restores clean factory state and reboots.\n\n'
+          'On next Wi-Fi connection, the inverter will automatically re-register itself with AWS IoT.',
+          style: TextStyle(color: Color(0xFFCBD5E1), fontSize: 13, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('CANCEL', style: TextStyle(color: Color(0xFF94A3B8), fontWeight: FontWeight.bold)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              _showTopBanner(
+                text: '🚨 Sending Factory Reset to inverter...',
+                color: const Color(0xFFEF4444),
+                icon: CupertinoIcons.arrow_counterclockwise,
+                durationSec: 4,
+              );
+
+              // 1. If BLE connected, send via BLE
+              if (_bleService.isConnected) {
+                await _bleService.factoryReset();
+              } else if (_selectedDevice != null) {
+                final ok = await _bleService.connect(_selectedDevice!);
+                if (ok) {
+                  await _bleService.factoryReset();
+                }
+              }
+
+              // 2. Also publish via AWS IoT MQTT command topic if connected
+              AwsIotService().publishMessage(
+                'solar/${widget.telemetry.thingId}/cmd',
+                jsonEncode({'cmd': 'factory_reset'}),
+              );
+
+              _showTopBanner(
+                text: 'Inverter NVS erased & rebooted to factory default!',
+                color: const Color(0xFF10B981),
+                icon: CupertinoIcons.checkmark_seal_fill,
+                durationSec: 5,
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            child: const Text('CONFIRM RESET', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
