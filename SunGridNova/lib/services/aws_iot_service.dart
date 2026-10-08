@@ -127,8 +127,6 @@ sIKWsND+n2baMuNRP4YsidGtQRODK9IBbw==
         client.subscribe('solar/+/telemetry', MqttQos.atLeastOnce);
         client.subscribe('solar/#', MqttQos.atLeastOnce);
         client.subscribe('solar/+/alerts', MqttQos.atLeastOnce);
-        client.subscribe('esp32/test', MqttQos.atLeastOnce);
-        client.subscribe('esp32/#', MqttQos.atLeastOnce);
       };
 
       client.onDisconnected = () {
@@ -166,7 +164,7 @@ sIKWsND+n2baMuNRP4YsidGtQRODK9IBbw==
 
           try {
             final data = jsonDecode(payloadStr) as Map<String, dynamic>;
-            if (topic.endsWith('/telemetry') || topic.contains('telemetry') || topic == 'esp32/test') {
+            if (topic.endsWith('/telemetry') || topic.contains('telemetry')) {
               _lastReceivedThing = data['thing']?.toString() ?? 'SunGridNova-49F8';
               _telemetryController.add(data);
             } else if (topic.endsWith('/alerts')) {

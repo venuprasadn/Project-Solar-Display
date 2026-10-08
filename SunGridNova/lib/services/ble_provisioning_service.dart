@@ -102,7 +102,7 @@ class BleProvisioningService {
             lower.contains('nova') ||
             lower.contains('inverter') ||
             lower.contains('setup') ||
-            lower.contains('esp') ||
+            lower.contains('controller') ||
             hasMatchingUuid) {
           matchCount++;
           _deviceFoundController.add(r.device);

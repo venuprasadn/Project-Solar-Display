@@ -2025,7 +2025,7 @@ class VendorScreen extends StatelessWidget {
               _buildRow('Serial Number', sNum),
               _buildRow('Hardware Revision', hVer),
               _buildRow('Display Subsystem', '320x240 TrueColor TFT LCD'),
-              _buildRow('Processing Unit', 'ESP32-S3 Dual-Core (16MB Flash, 8MB PSRAM)'),
+              _buildRow('Processing Unit', 'Industrial High-Performance Dual-Core Processor (16MB Flash, 8MB PSRAM)'),
             ],
           ),
 
