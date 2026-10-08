@@ -77,7 +77,7 @@ class BleProvisioningService {
         final platName = r.device.platformName;
         final name = advName.isNotEmpty ? advName : platName;
         final bool hasMatchingUuid = r.advertisementData.serviceUuids.contains(serviceUuid);
-        if (name.startsWith('SunGridNova') || hasMatchingUuid || name.toLowerCase().contains('sungrid')) {
+        if (name.startsWith('SunGridNova') || hasMatchingUuid || name.toLowerCase().contains('sungrid') || name.toLowerCase().contains('setup')) {
           _deviceFoundController.add(r.device);
           _statusMessageController.add('Found ${name.isNotEmpty ? name : "SunGridNova Inverter"}');
         }
@@ -87,6 +87,7 @@ class BleProvisioningService {
     try {
       await FlutterBluePlus.startScan(
         timeout: const Duration(seconds: 15),
+        androidScanMode: AndroidScanMode.lowLatency,
       );
     } catch (e) {
       if (e.toString().toLowerCase().contains('turned off') || e.toString().toLowerCase().contains('state')) {

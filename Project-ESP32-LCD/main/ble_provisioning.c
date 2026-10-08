@@ -186,23 +186,23 @@ void ble_provisioning_start_advertising(void)
     struct ble_hs_adv_fields rsp_fields;
     int rc;
 
-    /* 1. Primary Advertising Packet: Flags + 128-bit Service UUID */
+    /* 1. Primary Advertising Packet: Flags + Complete Local Name (instant name discovery) */
     memset(&fields, 0, sizeof(fields));
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
-    fields.uuids128 = &gatt_svr_svc_uuid;
-    fields.num_uuids128 = 1;
-    fields.uuids128_is_complete = 1;
+    fields.name = (uint8_t *)s_device_name;
+    fields.name_len = strlen(s_device_name);
+    fields.name_is_complete = 1;
 
     rc = ble_gap_adv_set_fields(&fields);
     if (rc != 0) {
         ESP_LOGE(TAG, "Failed to set adv fields: rc=%d", rc);
     }
 
-    /* 2. Scan Response Packet: Complete Local Name */
+    /* 2. Scan Response Packet: 128-bit Service UUID */
     memset(&rsp_fields, 0, sizeof(rsp_fields));
-    rsp_fields.name = (uint8_t *)s_device_name;
-    rsp_fields.name_len = strlen(s_device_name);
-    rsp_fields.name_is_complete = 1;
+    rsp_fields.uuids128 = &gatt_svr_svc_uuid;
+    rsp_fields.num_uuids128 = 1;
+    rsp_fields.uuids128_is_complete = 1;
 
     rc = ble_gap_adv_rsp_set_fields(&rsp_fields);
     if (rc != 0) {
