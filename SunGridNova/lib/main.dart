@@ -252,7 +252,7 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
       DashboardScreen(telemetry: _telemetry),
       DailyProductionScreen(telemetry: _telemetry),
       ProvisioningScreen(telemetry: _telemetry),
-      DiagnosticsScreen(telemetry: _telemetry),
+      VendorScreen(telemetry: _telemetry),
     ];
 
     return Scaffold(
@@ -288,8 +288,8 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
               label: 'Wi-Fi Setup',
             ),
             BottomNavigationBarItem(
-              icon: Icon(CupertinoIcons.shield_lefthalf_fill),
-              label: 'Diagnostics',
+              icon: Icon(CupertinoIcons.building_2_fill),
+              label: 'Vendor',
             ),
           ],
         ),
@@ -341,30 +341,39 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(8),
+                  padding: const EdgeInsets.all(4),
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFFF59E0B), Color(0xFFD97706)],
-                    ),
+                    color: const Color(0xFF1E293B),
                     borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF334155)),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFFF59E0B).withValues(alpha: 0.35),
-                        blurRadius: 10,
-                        offset: const Offset(0, 3),
+                        color: const Color(0xFFF59E0B).withValues(alpha: 0.25),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
                       )
                     ],
                   ),
-                  child: const Icon(CupertinoIcons.sun_max_fill, color: Colors.white, size: 20),
+                  child: Image.asset(
+                    'assets/logo.png',
+                    width: 28,
+                    height: 28,
+                    fit: BoxFit.contain,
+                    errorBuilder: (ctx, err, stack) => const Icon(
+                      CupertinoIcons.sun_max_fill,
+                      color: Color(0xFFF59E0B),
+                      size: 24,
+                    ),
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'SunGridNova',
-                        style: TextStyle(
+                      Text(
+                        t.vendorName.isNotEmpty ? t.vendorName : 'SunGridNova',
+                        style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w800,
                           letterSpacing: 0.4,
@@ -373,7 +382,7 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                         overflow: TextOverflow.ellipsis,
                       ),
                       Text(
-                        'HYBRID MPPT • ${t.thingId}',
+                        '${t.modelName.isNotEmpty ? t.modelName : "HYBRID MPPT"} • ${t.thingId}',
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w600,
@@ -1295,7 +1304,6 @@ class _ProvisioningScreenState extends State<ProvisioningScreen> with WidgetsBin
   bool _isScanning = false;
   bool _isTransmitting = false;
   bool _isPhoneWifiConnected = false;
-  String? _phoneWifiSsid;
 
   String? _topBannerText;
   Color _topBannerColor = const Color(0xFF10B981);
@@ -1358,7 +1366,6 @@ class _ProvisioningScreenState extends State<ProvisioningScreen> with WidgetsBin
         if (mounted) {
           setState(() {
             _isPhoneWifiConnected = connected;
-            _phoneWifiSsid = ssid;
             if (connected && ssid != null && ssid.isNotEmpty) {
               _ssidController.text = ssid;
             } else if (!connected) {
@@ -1435,7 +1442,7 @@ class _ProvisioningScreenState extends State<ProvisioningScreen> with WidgetsBin
                     margin: const EdgeInsets.only(bottom: 12),
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     decoration: BoxDecoration(
-                      color: _topBannerColor.withOpacity(0.18),
+                      color: _topBannerColor.withValues(alpha: 0.18),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: _topBannerColor, width: 1.2),
                     ),
@@ -1462,7 +1469,7 @@ class _ProvisioningScreenState extends State<ProvisioningScreen> with WidgetsBin
               margin: const EdgeInsets.only(bottom: 14),
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: const Color(0xFF7F1D1D).withOpacity(0.35),
+                color: const Color(0xFF7F1D1D).withValues(alpha: 0.35),
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: const Color(0xFFEF4444), width: 1.2),
               ),
@@ -1854,88 +1861,201 @@ class _ProvisioningScreenState extends State<ProvisioningScreen> with WidgetsBin
 }
 
 // ---------------------------------------------------------------------------
-// SCREEN 4: INDUSTRIAL DIAGNOSTICS & OEM INFO
+// SCREEN 4: EXECUTIVE OEM VENDOR PROFILE & COMPLIANCE
 // ---------------------------------------------------------------------------
-class DiagnosticsScreen extends StatelessWidget {
+class VendorScreen extends StatelessWidget {
   final InverterTelemetry telemetry;
-  const DiagnosticsScreen({super.key, required this.telemetry});
+  const VendorScreen({super.key, required this.telemetry});
 
   @override
   Widget build(BuildContext context) {
+    final vName = telemetry.vendorName.isNotEmpty ? telemetry.vendorName : 'MICROSANJU';
+    final mName = telemetry.modelName.isNotEmpty ? telemetry.modelName : 'HYBRID MPPT PCU';
+    final sNum = telemetry.serialNumber.isNotEmpty
+        ? telemetry.serialNumber
+        : (telemetry.thingId.isNotEmpty ? telemetry.thingId : 'MS-2026-X8849');
+    final hVer = telemetry.hardwareVersion.isNotEmpty ? telemetry.hardwareVersion : 'HW-V2.1';
+    final vContact = telemetry.vendorContact.isNotEmpty ? telemetry.vendorContact : 'Toll Free: 1800-425-9999';
+    final vSite = telemetry.vendorWebsite.isNotEmpty ? telemetry.vendorWebsite : 'www.microsanju.in';
+
     return SafeArea(
       child: ListView(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
         children: [
-          const Text(
-            'System Diagnostics & OEM',
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white),
+          // 1. Top Emblem Branding Card
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: const Color(0xFF334155), width: 1.2),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                  blurRadius: 20,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                // Glowing Emblem Container with OEM Logo
+                Container(
+                  width: 84,
+                  height: 84,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: const Color(0xFF0B1120),
+                    border: Border.all(color: const Color(0xFFF59E0B), width: 2),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFFF59E0B).withValues(alpha: 0.35),
+                        blurRadius: 16,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                  child: Image.asset(
+                    'assets/logo.png',
+                    fit: BoxFit.contain,
+                    errorBuilder: (ctx, err, stack) => const Icon(
+                      CupertinoIcons.sun_max_fill,
+                      color: Color(0xFFF59E0B),
+                      size: 48,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  vName,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.0,
+                    color: Color(0xFFF59E0B),
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  mName,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF064E3B).withValues(alpha: 0.8),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFF10B981), width: 1),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(CupertinoIcons.checkmark_seal_fill, color: Color(0xFF34D399), size: 14),
+                      SizedBox(width: 6),
+                      Text(
+                        'ISO 9001 / IEC 62109 CERTIFIED',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.5,
+                          color: Color(0xFF34D399),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 6),
-          Text(
-            'Live Hardware Diagnostics & Certified Calibration Limits',
-            style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.5)),
+
+          const SizedBox(height: 16),
+
+          // 2. Card 1: OEM System Identification
+          _buildVendorCard(
+            title: 'OEM SYSTEM IDENTIFICATION',
+            icon: CupertinoIcons.info_circle_fill,
+            items: [
+              _buildRow('Manufacturer / Brand', vName),
+              _buildRow('Product Model', mName),
+              _buildRow('Serial Number', sNum),
+              _buildRow('Hardware Revision', hVer),
+              _buildRow('Display Subsystem', '320x240 TrueColor TFT LCD'),
+              _buildRow('Processing Unit', 'ESP32-S3 Dual-Core (16MB Flash, 8MB PSRAM)'),
+            ],
+          ),
+
+          const SizedBox(height: 14),
+
+          // 3. Card 2: Standards & Industrial Compliance
+          _buildVendorCard(
+            title: 'REGULATORY & INDUSTRIAL STANDARDS',
+            icon: CupertinoIcons.shield_lefthalf_fill,
+            items: [
+              _buildRow('Quality Management', 'ISO 9001:2015 Registered'),
+              _buildRow('Electrical Safety', 'IEC 62109-1 / IEC 62109-2'),
+              _buildRow('Environmental Durability', 'MIL-STD-810H Compliant'),
+              _buildRow('Electromagnetic Conformity', 'CE & RoHS Certified'),
+            ],
+          ),
+
+          const SizedBox(height: 14),
+
+          // 4. Card 3: Support & Official Portal
+          _buildVendorCard(
+            title: 'CUSTOMER CARE & TECHNICAL SUPPORT',
+            icon: CupertinoIcons.phone_fill,
+            items: [
+              _buildRow('Helpline / Toll-Free', vContact),
+              _buildRow('Official Web Portal', vSite),
+              _buildRow('Technical Assistance', '24x7 Industrial Engineering Support'),
+              _buildRow('Warranty Validation', 'OEM Active Commercial Protection'),
+            ],
+          ),
+
+          const SizedBox(height: 14),
+
+          // 5. Card 4: Controller Network & Cloud Link
+          _buildVendorCard(
+            title: 'CONTROLLER CLOUD & NETWORK STATUS',
+            icon: CupertinoIcons.cloud_fill,
+            items: [
+              _buildRow('Device Identity', telemetry.thingId),
+              _buildRow('Wi-Fi Network', telemetry.connectedSsid.isNotEmpty ? telemetry.connectedSsid : 'Online'),
+              _buildRow('Controller IP', telemetry.ipAddress.isNotEmpty ? telemetry.ipAddress : '0.0.0.0'),
+              _buildRow(
+                'IoT Cloud Stream',
+                telemetry.isLiveAws
+                    ? 'CONNECTED (Live AWS IoT Core)'
+                    : (telemetry.awsStatus == AwsConnectionStatus.connecting
+                        ? 'CONNECTING...'
+                        : 'OFFLINE'),
+              ),
+              _buildRow('Transport Security', 'Encrypted TLS 1.2 (Hardware Root of Trust)'),
+            ],
           ),
           const SizedBox(height: 20),
-
-          _buildDiagCard(
-            title: 'OEM VENDOR & SUPPORT INFORMATION',
-            items: [
-              _buildRow('Brand / OEM', telemetry.vendorName.isNotEmpty ? telemetry.vendorName : 'MICROSANJU'),
-              _buildRow('Model Name', telemetry.modelName.isNotEmpty ? telemetry.modelName : 'HYBRID MPPT PCU'),
-              _buildRow('Serial Number', telemetry.serialNumber.isNotEmpty ? telemetry.serialNumber : (telemetry.thingId.isNotEmpty ? telemetry.thingId : 'MS-2026-X8849')),
-              _buildRow('Hardware Rev', telemetry.hardwareVersion.isNotEmpty ? telemetry.hardwareVersion : 'HW-V2.1'),
-              _buildRow('Support Contact', telemetry.vendorContact.isNotEmpty ? telemetry.vendorContact : 'Toll Free: 1800-425-9999'),
-              _buildRow('Official Website', telemetry.vendorWebsite.isNotEmpty ? telemetry.vendorWebsite : 'www.microsanju.in'),
-            ],
-          ),
-
-          const SizedBox(height: 14),
-
-          _buildDiagCard(
-            title: 'HARDWARE PLATFORM',
-            items: [
-              _buildRow('Inverter Controller', 'Solar HMI Controller V2.1'),
-              _buildRow('Processor Architecture', 'ESP32 Dual-Core Xtensa LX6'),
-              _buildRow('RTOS System', 'FreeRTOS Industrial Task Sched.'),
-              _buildRow('Security State', 'Task Watchdog Active (5000ms Panic)'),
-            ],
-          ),
-
-          const SizedBox(height: 14),
-
-          _buildDiagCard(
-            title: 'CALIBRATED PROTECTION THRESHOLDS',
-            items: [
-              _buildRow('Battery Full Cutoff', '28.8 VDC'),
-              _buildRow('Battery Low Trip Cutoff', '21.0 VDC'),
-              _buildRow('AC Mains Undervolt Limit', '185 VAC'),
-              _buildRow('AC Mains Overvolt Limit', '265 VAC'),
-              _buildRow('Heatsink Thermal Trip', '85.0 °C'),
-            ],
-          ),
-
-          const SizedBox(height: 14),
-
-          _buildDiagCard(
-            title: 'SERVER & CONNECTIVITY STATUS',
-            items: [
-              _buildRow('Cloud Server', 'Connected (Online)'),
-              _buildRow('Device Serial', telemetry.thingId),
-              _buildRow('Inverter Wi-Fi SSID', telemetry.connectedSsid.isNotEmpty ? telemetry.connectedSsid : 'Not Connected'),
-              _buildRow('Inverter Local IP', telemetry.ipAddress.isNotEmpty ? telemetry.ipAddress : '0.0.0.0 (Awaiting DHCP)'),
-              _buildRow('Server Connection', telemetry.isLiveAws ? 'CONNECTED' : (telemetry.awsStatus == AwsConnectionStatus.connecting ? 'CONNECTING' : 'ONLINE')),
-              _buildRow('Data Channel', telemetry.isLiveAws ? 'LIVE SERVER STREAM' : 'LOCAL CACHED'),
-              _buildRow('Telemetry Feed', 'Active'),
-              _buildRow('Last Telemetry Packet', telemetry.lastPacketTime != null ? '${DateTime.now().difference(telemetry.lastPacketTime!).inSeconds}s ago' : 'Awaiting publication...'),
-              _buildRow('Security Protocol', 'Encrypted TLS 1.2'),
-            ],
-          ),
         ],
       ),
     );
   }
 
-  Widget _buildDiagCard({required String title, required List<Widget> items}) {
+  Widget _buildVendorCard({
+    required String title,
+    required IconData icon,
+    required List<Widget> items,
+  }) {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -1946,9 +2066,20 @@ class DiagnosticsScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFFF59E0B)),
+          Row(
+            children: [
+              Icon(icon, color: const Color(0xFFF59E0B), size: 16),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.5,
+                  color: Color(0xFFF59E0B),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
           ...items,
@@ -1959,11 +2090,14 @@ class DiagnosticsScreen extends StatelessWidget {
 
   Widget _buildRow(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      padding: const EdgeInsets.symmetric(vertical: 5.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8))),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -1971,7 +2105,11 @@ class DiagnosticsScreen extends StatelessWidget {
               textAlign: TextAlign.end,
               overflow: TextOverflow.ellipsis,
               maxLines: 2,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white),
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
             ),
           ),
         ],
