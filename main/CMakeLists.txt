@@ -1,8 +1,10 @@
 idf_component_register(
     SRCS "main.c"
          "wifi_manager.c"
+         "ble_provisioning.c"
          "aws_iot_client.c"
          "assets/img_solar.c"
+         "assets/master_oem_logo.c"
          "assets/img_battery.c"
          "assets/img_grid.c"
          "assets/img_home.c"
@@ -14,5 +16,5 @@ idf_component_register(
          "assets/font_bold_16.c"
          "assets/font_bold_20.c"
     INCLUDE_DIRS "." "assets"
-    REQUIRES nvs_flash esp_timer esp_driver_uart esp_driver_gpio esp_driver_spi esp_lcd lvgl spi_flash esp_wifi esp_event esp_netif mqtt mbedtls
+    REQUIRES nvs_flash esp_timer esp_driver_uart esp_driver_gpio esp_driver_spi esp_driver_usb_serial_jtag esp_lcd lvgl spi_flash esp_wifi esp_event esp_netif mqtt mbedtls bt
 )
