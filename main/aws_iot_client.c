@@ -159,7 +159,10 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             s_tls_error_type = 0;
             ESP_LOGI(TAG, "✅ Connected to AWS IoT Core securely (mTLS 1.2 / Port 8883)");
             esp_mqtt_client_subscribe(s_mqtt_client, "solar/presence", 1);
-            esp_mqtt_client_subscribe(s_mqtt_client, "solar/+/presence", 1);
+            char cmd_topic[64];
+            snprintf(cmd_topic, sizeof(cmd_topic), "solar/%s/cmd", s_thing_id);
+            esp_mqtt_client_subscribe(s_mqtt_client, cmd_topic, 1);
+            esp_mqtt_client_subscribe(s_mqtt_client, "solar/+/cmd", 1);
 
             if (!s_is_provisioned) {
                 start_fleet_provisioning();
@@ -179,6 +182,14 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
                 if (strstr(topic_buf, "presence") != NULL) {
                     s_client_active_until = esp_timer_get_time() + (35 * 1000000ULL);
                     ESP_LOGI(TAG, "📱 Mobile App client presence detected! Real-time telemetry engaged.");
+                } else if (strstr(topic_buf, "cmd") != NULL) {
+                    if (event->data && (strstr(event->data, "factory_reset") || strstr(event->data, "FACTORY_RESET"))) {
+                        ESP_LOGW(TAG, "🚨 Remote Factory Reset received via AWS IoT! Erasing NVS and rebooting...");
+                        vTaskDelay(pdMS_TO_TICKS(200));
+                        nvs_flash_erase();
+                        vTaskDelay(pdMS_TO_TICKS(300));
+                        esp_restart();
+                    }
                 } else if (strstr(topic_buf, "$aws/") != NULL) {
                     handle_provisioning_data(topic_buf, event->data, event->data_len);
                 }

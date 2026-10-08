@@ -2,6 +2,7 @@
 #include "wifi_manager.h"
 #include "aws_iot_client.h"
 #include "esp_wifi.h"
+#include "nvs_flash.h"
 #include <string.h>
 #include <stdio.h>
 #include "esp_log.h"
@@ -87,6 +88,17 @@ static int gatt_svr_chr_access(uint16_t conn_handle, uint16_t attr_handle,
             return BLE_ATT_ERR_UNLIKELY;
         }
         buf[len] = '\0';
+
+        /* Check for Factory Reset command */
+        if (strcmp(buf, "FACTORY_RESET") == 0 || strcmp(buf, "RESET") == 0) {
+            ESP_LOGW(TAG, "🚨 FACTORY RESET command received over BLE! Erasing NVS and restarting in 500ms...");
+            ble_provisioning_notify_status(false);
+            vTaskDelay(pdMS_TO_TICKS(200));
+            nvs_flash_erase();
+            vTaskDelay(pdMS_TO_TICKS(300));
+            esp_restart();
+            return 0;
+        }
 
         /* Parse <SSID>,<PASSWORD> */
         char *comma = strchr(buf, ',');
