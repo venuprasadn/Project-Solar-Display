@@ -48,7 +48,7 @@ static int gatt_svr_chr_access(uint16_t conn_handle, uint16_t attr_handle,
 {
     if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
         if (attr_handle == s_tx_char_val_handle) {
-            char resp_buf[140];
+            char resp_buf[256];
             uint8_t mac[6];
             esp_efuse_mac_get_default(mac);
             wifi_ap_record_t ap_info;
@@ -59,13 +59,18 @@ static int gatt_svr_chr_access(uint16_t conn_handle, uint16_t attr_handle,
             pcu_vendor_snapshot_t vsnap;
             memset(&vsnap, 0, sizeof(vsnap));
             get_pcu_vendor_snapshot(&vsnap);
-            snprintf(resp_buf, sizeof(resp_buf), "%02X%02X%02X%02X%02X%02X,%d,%s,%s,%d,%s",
+            snprintf(resp_buf, sizeof(resp_buf), "%02X%02X%02X%02X%02X%02X,%d,%s,%s,%d,%s,%s,%s,%s,%s,%s",
                      mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
                      wifi_manager_is_connected() ? 1 : 0,
                      wifi_manager_get_ssid(),
                      wifi_manager_get_ip_str(),
                      rssi,
-                     vsnap.brand_title);
+                     vsnap.brand_title,
+                     vsnap.model_name,
+                     vsnap.serial_number,
+                     vsnap.hardware_version,
+                     vsnap.vendor_contact,
+                     vsnap.vendor_website);
 
             int rc = os_mbuf_append(ctxt->om, resp_buf, strlen(resp_buf));
             return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
@@ -259,7 +264,7 @@ void ble_provisioning_notify_status(bool connected)
         return;
     }
 
-    char resp_buf[140];
+    char resp_buf[256];
     uint8_t mac[6];
     esp_efuse_mac_get_default(mac);
     wifi_ap_record_t ap_info;
@@ -270,13 +275,18 @@ void ble_provisioning_notify_status(bool connected)
     pcu_vendor_snapshot_t vsnap;
     memset(&vsnap, 0, sizeof(vsnap));
     get_pcu_vendor_snapshot(&vsnap);
-    snprintf(resp_buf, sizeof(resp_buf), "%02X%02X%02X%02X%02X%02X,%d,%s,%s,%d,%s",
+    snprintf(resp_buf, sizeof(resp_buf), "%02X%02X%02X%02X%02X%02X,%d,%s,%s,%d,%s,%s,%s,%s,%s,%s",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
              connected ? 1 : 0,
              wifi_manager_get_ssid(),
              wifi_manager_get_ip_str(),
              rssi,
-             vsnap.brand_title);
+             vsnap.brand_title,
+             vsnap.model_name,
+             vsnap.serial_number,
+             vsnap.hardware_version,
+             vsnap.vendor_contact,
+             vsnap.vendor_website);
 
     struct os_mbuf *om = ble_hs_mbuf_from_flat(resp_buf, strlen(resp_buf));
     if (om) {

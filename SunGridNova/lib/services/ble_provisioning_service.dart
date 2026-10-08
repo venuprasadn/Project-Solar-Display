@@ -46,6 +46,21 @@ class BleProvisioningService {
   String? _vendorName;
   String? get vendorName => _vendorName;
 
+  String? _modelName;
+  String? get modelName => _modelName;
+
+  String? _serialNumber;
+  String? get serialNumber => _serialNumber;
+
+  String? _hardwareVersion;
+  String? get hardwareVersion => _hardwareVersion;
+
+  String? _vendorContact;
+  String? get vendorContact => _vendorContact;
+
+  String? _vendorWebsite;
+  String? get vendorWebsite => _vendorWebsite;
+
   Future<void> startScan() async {
     _statusMessageController.add('Scanning for nearby SunGridNova inverters...');
 
@@ -143,6 +158,21 @@ class BleProvisioningService {
       }
       if (parts.length > 5 && parts[5].isNotEmpty) {
         _vendorName = parts[5].trim();
+      }
+      if (parts.length > 6 && parts[6].isNotEmpty) {
+        _modelName = parts[6].trim();
+      }
+      if (parts.length > 7 && parts[7].isNotEmpty) {
+        _serialNumber = parts[7].trim();
+      }
+      if (parts.length > 8 && parts[8].isNotEmpty) {
+        _hardwareVersion = parts[8].trim();
+      }
+      if (parts.length > 9 && parts[9].isNotEmpty) {
+        _vendorContact = parts[9].trim();
+      }
+      if (parts.length > 10 && parts[10].isNotEmpty) {
+        _vendorWebsite = parts[10].trim();
       }
       _isProvisionedController.add(isWifiOk);
       _statusMessageController.add(

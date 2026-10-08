@@ -102,12 +102,12 @@ class InverterTelemetry {
     this.connectedSsid = '',
     this.ipAddress = '',
     this.wifiRssi = -100,
-    this.vendorName = 'MICROSANJU',
-    this.modelName = 'HYBRID MPPT PCU',
-    this.serialNumber = 'MS-2026-X8849',
+    this.vendorName = '',
+    this.modelName = '',
+    this.serialNumber = '',
     this.hardwareVersion = 'HW-V2.1',
-    this.vendorContact = 'Toll Free: 1800-425-9999',
-    this.vendorWebsite = 'www.microsanju.in',
+    this.vendorContact = '',
+    this.vendorWebsite = '',
   });
 }
 
@@ -125,9 +125,11 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
   int _currentIndex = 0;
   final InverterTelemetry _telemetry = InverterTelemetry();
   final _awsService = AwsIotService();
+  final _bleService = BleProvisioningService();
   StreamSubscription? _awsStatusSub;
   StreamSubscription? _awsTelemetrySub;
   StreamSubscription? _awsAlertSub;
+  StreamSubscription? _bleSub;
   Timer? _simTimer;
   double _simPhase = 0.0;
 
@@ -142,6 +144,36 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
       if (!mounted) return;
       setState(() {
         _telemetry.awsStatus = status;
+      });
+    });
+
+    _bleSub = _bleService.isProvisionedStream.listen((_) {
+      if (!mounted) return;
+      setState(() {
+        if (_bleService.vendorName != null && _bleService.vendorName!.isNotEmpty) {
+          _telemetry.vendorName = _bleService.vendorName!;
+        }
+        if (_bleService.modelName != null && _bleService.modelName!.isNotEmpty) {
+          _telemetry.modelName = _bleService.modelName!;
+        }
+        if (_bleService.serialNumber != null && _bleService.serialNumber!.isNotEmpty) {
+          _telemetry.serialNumber = _bleService.serialNumber!;
+        }
+        if (_bleService.hardwareVersion != null && _bleService.hardwareVersion!.isNotEmpty) {
+          _telemetry.hardwareVersion = _bleService.hardwareVersion!;
+        }
+        if (_bleService.vendorContact != null && _bleService.vendorContact!.isNotEmpty) {
+          _telemetry.vendorContact = _bleService.vendorContact!;
+        }
+        if (_bleService.vendorWebsite != null && _bleService.vendorWebsite!.isNotEmpty) {
+          _telemetry.vendorWebsite = _bleService.vendorWebsite!;
+        }
+        if (_bleService.inverterSsid != null && _bleService.inverterSsid!.isNotEmpty) {
+          _telemetry.connectedSsid = _bleService.inverterSsid!;
+        }
+        if (_bleService.inverterIp != null && _bleService.inverterIp!.isNotEmpty) {
+          _telemetry.ipAddress = _bleService.inverterIp!;
+        }
       });
     });
 
@@ -243,6 +275,7 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
     _awsStatusSub?.cancel();
     _awsTelemetrySub?.cancel();
     _awsAlertSub?.cancel();
+    _bleSub?.cancel();
     super.dispose();
   }
 
@@ -1869,14 +1902,14 @@ class VendorScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final vName = telemetry.vendorName.isNotEmpty ? telemetry.vendorName : 'MICROSANJU';
-    final mName = telemetry.modelName.isNotEmpty ? telemetry.modelName : 'HYBRID MPPT PCU';
+    final vName = telemetry.vendorName.isNotEmpty ? telemetry.vendorName : 'OEM Solar Unit';
+    final mName = telemetry.modelName.isNotEmpty ? telemetry.modelName : 'Hybrid MPPT Controller';
     final sNum = telemetry.serialNumber.isNotEmpty
         ? telemetry.serialNumber
-        : (telemetry.thingId.isNotEmpty ? telemetry.thingId : 'MS-2026-X8849');
+        : (telemetry.thingId.isNotEmpty ? telemetry.thingId : 'Solar-Unit');
     final hVer = telemetry.hardwareVersion.isNotEmpty ? telemetry.hardwareVersion : 'HW-V2.1';
-    final vContact = telemetry.vendorContact.isNotEmpty ? telemetry.vendorContact : 'Toll Free: 1800-425-9999';
-    final vSite = telemetry.vendorWebsite.isNotEmpty ? telemetry.vendorWebsite : 'www.microsanju.in';
+    final vContact = telemetry.vendorContact.isNotEmpty ? telemetry.vendorContact : 'Support Portal';
+    final vSite = telemetry.vendorWebsite.isNotEmpty ? telemetry.vendorWebsite : 'Customer Care Portal';
 
     return SafeArea(
       child: ListView(
@@ -1965,7 +1998,7 @@ class VendorScreen extends StatelessWidget {
                       Icon(CupertinoIcons.checkmark_seal_fill, color: Color(0xFF34D399), size: 14),
                       SizedBox(width: 6),
                       Text(
-                        'ISO 9001 / IEC 62109 CERTIFIED',
+                        'ISO 9001 / IEC 62109 COMPATIBLE',
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w800,
@@ -1998,15 +2031,15 @@ class VendorScreen extends StatelessWidget {
 
           const SizedBox(height: 14),
 
-          // 3. Card 2: Standards & Industrial Compliance
+          // 3. Card 2: Standards & Industrial Compatibility
           _buildVendorCard(
-            title: 'REGULATORY & INDUSTRIAL STANDARDS',
+            title: 'REGULATORY & INDUSTRIAL COMPATIBILITY',
             icon: CupertinoIcons.shield_lefthalf_fill,
             items: [
-              _buildRow('Quality Management', 'ISO 9001:2015 Registered'),
-              _buildRow('Electrical Safety', 'IEC 62109-1 / IEC 62109-2'),
-              _buildRow('Environmental Durability', 'MIL-STD-810H Compliant'),
-              _buildRow('Electromagnetic Conformity', 'CE & RoHS Certified'),
+              _buildRow('Quality Management', 'ISO 9001:2015 Compatible'),
+              _buildRow('Electrical Safety', 'IEC 62109-1 / IEC 62109-2 Compatible'),
+              _buildRow('Environmental Durability', 'MIL-STD-810H Compatible'),
+              _buildRow('Electromagnetic Conformity', 'CE & RoHS Compatible'),
             ],
           ),
 
