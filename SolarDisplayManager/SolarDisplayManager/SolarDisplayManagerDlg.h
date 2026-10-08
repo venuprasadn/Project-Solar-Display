@@ -3,6 +3,10 @@
 #include "SerialComm.h"
 #include "EspFlasher.h"
 #include "pcu_protocol.h"
+#include "TabDisplayDlg.h"
+#include "TabAppDlg.h"
+#include "OEMHeaderCtrl.h"
+#include "OEMPayload.h"
 
 // CSolarDisplayManagerDlg dialog
 class CSolarDisplayManagerDlg : public CDialogEx
@@ -23,44 +27,52 @@ protected:
 protected:
     HICON m_hIcon;
 
-    // Control Variables
-    CComboBox    m_comboPort;
-    CStatic      m_staticStatus;
-    CEdit        m_editAppBin;
-    CComboBox    m_comboFlashBaud;
+    // Top GDI+ Banner Control
+    COEMHeaderCtrl m_oemHeader;
+
+    // Common Header Controls
+    CComboBox     m_comboPort;
+    CStatic       m_staticStatus;
+    CComboBox     m_comboFlashBaud;
     CProgressCtrl m_progressFlash;
-    CButton      m_chkAutoProvision;
+    CButton       m_chkAutoProvision;
 
-    CEdit        m_editBrand;
-    CEdit        m_editModel;
-    CEdit        m_editSerial;
-    CEdit        m_editHwRev;
-    CEdit        m_editVendorContact;
-    CEdit        m_editVendorWebsite;
-    CComboBox    m_comboLogoTheme;
-    CEdit        m_editBootSec;
-    CButton      m_chkCarousel;
-    CEdit        m_editCarouselSec;
-    CComboBox    m_comboTelemBaud;
-    CEdit        m_editLogoPath;
+    // Tab Control & Child Dialogs
+    CTabCtrl        m_tabCtrl;
+    CTabDisplayDlg  m_tabDisplay;
+    CTabAppDlg      m_tabApp;
 
-    CEdit        m_editLog;
+    // Common Action Buttons (Out of Tab)
+    CButton       m_btnReadConfig;
+    CButton       m_btnWriteConfig;
+    CButton       m_btnReboot;
+    CButton       m_btnFactoryReset;
+
+    // Common Footer Controls
+    CEdit         m_editLog;
 
     // Logic Engines
-    CSerialComm  m_comm;
-    CEspFlasher  m_flasher;
-    bool         m_isFlashing;
+    CSerialComm     m_comm;
+    CEspFlasher     m_flasher;
+    bool            m_isFlashing;
 
 public:
     void AppendLog(const CString& text, bool isError = false);
-    bool CollectConfigFromUI(pcu_config_t& cfg);
     void SetUIEnabled(BOOL bEnable);
-    static bool ConvertImageToLogoBin(const CString& imagePath, std::vector<uint8_t>& outLogoData, CString& outError);
+    bool EnsureConnected();
+    CSerialComm& GetComm() { return m_comm; }
+
+    // Inter-dialog communication & Device Commands
+    bool ReadConfig(pcu_config_t& cfg);
+    bool WriteConfig(const pcu_config_t& cfg);
+    bool RebootDevice();
+    bool FactoryResetDevice();
+    bool ProvisionWifi(const CString& ssid, const CString& pass);
+    bool ScanWifi(std::vector<wifi_scan_ap_record_t>& outAps);
+    bool QueryIotStatus(hrf_iot_status_payload_t& outStatus);
 
 protected:
-    bool EnsureConnected();
     void RefreshComPorts();
-    void LoadConfigToUI(const pcu_config_t& cfg);
 
     virtual BOOL OnInitDialog();
     afx_msg void OnSysCommand(UINT nID, LPARAM lParam);
@@ -70,11 +82,8 @@ protected:
     // Event Handlers
     afx_msg void OnBnClickedBtnRefreshPorts();
     afx_msg void OnBnClickedBtnConnect();
-    afx_msg void OnBnClickedBtnBrowseApp();
     afx_msg void OnBnClickedBtnFlash();
-    afx_msg void OnBnClickedBtnBrowseLogo();
-    afx_msg void OnBnClickedBtnFlashLogo();
-    afx_msg void OnBnClickedBtnClearLogo();
+    afx_msg void OnTcnSelchangeTabMain(NMHDR *pNMHDR, LRESULT *pResult);
     afx_msg void OnBnClickedBtnReadConfig();
     afx_msg void OnBnClickedBtnWriteConfig();
     afx_msg void OnBnClickedBtnReboot();

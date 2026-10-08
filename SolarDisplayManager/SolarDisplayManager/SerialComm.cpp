@@ -395,11 +395,207 @@ bool CSerialComm::ClearLogo()
     return false;
 }
 
-std::vector<CString> CSerialComm::EnumeratePorts()
+bool CSerialComm::ProvisionWifi(const char* ssid, const char* password)
 {
-    std::vector<CString> ports;
-    HKEY hKey;
+    if (!ssid || strlen(ssid) == 0) return false;
+    char payload[128];
+    sprintf_s(payload, sizeof(payload), "%s,%s", ssid, password ? password : "");
+    uint16_t len = (uint16_t)strlen(payload);
 
+    if (!SendFrame(CMD_PROVISION_WIFI, (const uint8_t*)payload, len)) {
+        m_lastError = _T("Failed to transmit CMD_PROVISION_WIFI frame.");
+        return false;
+    }
+
+    hrf_header_t hdr;
+    hrf_ack_payload_t ack;
+    if (ReceiveFrame(&hdr, (uint8_t*)&ack, sizeof(ack), 3000)) {
+        return (hdr.cmd == RESP_ACK && ack.status_code == STATUS_OK);
+    }
+
+    m_lastError = _T("Wi-Fi provisioning response timed out.");
+    return false;
+}
+
+bool CSerialComm::ScanWifi(wifi_scan_result_payload_t* outScan)
+{
+    if (!outScan) return false;
+
+    if (!SendFrame(CMD_SCAN_WIFI)) {
+        m_lastError = _T("Failed to send CMD_SCAN_WIFI.");
+        return false;
+    }
+
+    hrf_header_t hdr;
+    if (ReceiveFrame(&hdr, (uint8_t*)outScan, sizeof(wifi_scan_result_payload_t), 6000)) {
+        return (hdr.cmd == RESP_WIFI_SCAN_DATA);
+    }
+
+    m_lastError = _T("Wi-Fi scan response timed out.");
+    return false;
+}
+
+bool CSerialComm::ReadIotStatus(hrf_iot_status_payload_t* outStatus)
+{
+    if (!outStatus) return false;
+
+    if (!SendFrame(CMD_READ_IOT_STATUS)) {
+        m_lastError = _T("Failed to send CMD_READ_IOT_STATUS.");
+        return false;
+    }
+
+    hrf_header_t hdr;
+    if (ReceiveFrame(&hdr, (uint8_t*)outStatus, sizeof(hrf_iot_status_payload_t), 2000)) {
+        return (hdr.cmd == RESP_IOT_STATUS_DATA);
+    }
+
+    m_lastError = _T("Read IoT status response timed out.");
+    return false;
+}
+
+#include <setupapi.h>
+#include <devguid.h>
+#pragma comment(lib, "setupapi.lib")
+
+static bool ParseVidPid(const CString& hwId, uint16_t& outVid, uint16_t& outPid)
+{
+    outVid = 0;
+    outPid = 0;
+    CString upper = hwId;
+    upper.MakeUpper();
+
+    int vidIdx = upper.Find(_T("VID_"));
+    if (vidIdx != -1 && vidIdx + 8 <= upper.GetLength()) {
+        CString vidStr = upper.Mid(vidIdx + 4, 4);
+        outVid = (uint16_t)_tcstoul((LPCTSTR)vidStr, NULL, 16);
+    }
+
+    int pidIdx = upper.Find(_T("PID_"));
+    if (pidIdx == -1) pidIdx = upper.Find(_T("PID+"));
+    if (pidIdx != -1 && pidIdx + 8 <= upper.GetLength()) {
+        CString pidStr = upper.Mid(pidIdx + 4, 4);
+        outPid = (uint16_t)_tcstoul((LPCTSTR)pidStr, NULL, 16);
+    }
+
+    return (outVid != 0);
+}
+
+std::vector<CSerialComm::PortInfo> CSerialComm::EnumerateDetailedPorts()
+{
+    std::vector<PortInfo> results;
+
+    // 1. Enumerate via official Windows SetupAPI (Ports Class)
+    HDEVINFO hDevInfo = SetupDiGetClassDevs(&GUID_DEVCLASS_PORTS, NULL, NULL, DIGCF_PRESENT);
+    if (hDevInfo != INVALID_HANDLE_VALUE)
+    {
+        SP_DEVINFO_DATA devInfoData;
+        devInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
+        DWORD devIdx = 0;
+
+        while (SetupDiEnumDeviceInfo(hDevInfo, devIdx++, &devInfoData))
+        {
+            // Query PortName from Device Registry
+            HKEY hDevKey = SetupDiOpenDevRegKey(hDevInfo, &devInfoData, DICS_FLAG_GLOBAL, 0, DIREG_DEV, KEY_READ);
+            if (hDevKey != INVALID_HANDLE_VALUE)
+            {
+                TCHAR portName[64] = { 0 };
+                DWORD portSize = sizeof(portName);
+                DWORD type = 0;
+
+                if (RegQueryValueEx(hDevKey, _T("PortName"), NULL, &type, (LPBYTE)portName, &portSize) == ERROR_SUCCESS)
+                {
+                    CString strPort(portName);
+                    if (!strPort.IsEmpty() && strPort.Left(3).CompareNoCase(_T("COM")) == 0)
+                    {
+                        PortInfo info;
+                        info.portName = strPort;
+                        info.vid = 0;
+                        info.pid = 0;
+                        info.isEspDevice = false;
+                        info.rank = 99;
+
+                        // Query Hardware ID
+                        TCHAR hwIdBuf[512] = { 0 };
+                        if (SetupDiGetDeviceRegistryProperty(hDevInfo, &devInfoData, SPDRP_HARDWAREID, NULL, (PBYTE)hwIdBuf, sizeof(hwIdBuf), NULL)) {
+                            info.hardwareId = hwIdBuf;
+                            ParseVidPid(info.hardwareId, info.vid, info.pid);
+                        }
+
+                        // Query Friendly Name
+                        TCHAR friendlyBuf[512] = { 0 };
+                        CString friendly;
+                        if (SetupDiGetDeviceRegistryProperty(hDevInfo, &devInfoData, SPDRP_FRIENDLYNAME, NULL, (PBYTE)friendlyBuf, sizeof(friendlyBuf), NULL)) {
+                            friendly = friendlyBuf;
+                        }
+
+                        // Strict VID & PID Hardware Classification
+                        if (info.vid == 0x303A) // Espressif Systems
+                        {
+                            info.isEspDevice = true;
+                            if (info.pid == 0x1001) {
+                                info.rank = 1;
+                                info.friendlyName.Format(_T("%s - ESP32-S3 Target (Native USB-JTAG/CDC)"), (LPCTSTR)strPort);
+                            } else if (info.pid == 0x1002 || info.pid == 0x0002) {
+                                info.rank = 1;
+                                info.friendlyName.Format(_T("%s - ESP32 Controller (Native USB CDC)"), (LPCTSTR)strPort);
+                            } else {
+                                info.rank = 2;
+                                info.friendlyName.Format(_T("%s - ESP32 Controller (Espressif USB)"), (LPCTSTR)strPort);
+                            }
+                        }
+                        else if (info.vid == 0x1A86) // WCH (CH343 / CH9102 / CH340)
+                        {
+                            info.isEspDevice = true;
+                            info.rank = 3;
+                            if (info.pid == 0x55D4) {
+                                info.friendlyName.Format(_T("%s - Controller Target (CH343 High-Speed)"), (LPCTSTR)strPort);
+                            } else if (info.pid == 0xE523) {
+                                info.friendlyName.Format(_T("%s - Controller Target (CH9102 Bridge)"), (LPCTSTR)strPort);
+                            } else {
+                                info.friendlyName.Format(_T("%s - Controller Target (CH340/CH341 Bridge)"), (LPCTSTR)strPort);
+                            }
+                        }
+                        else if (info.vid == 0x10C4) // Silicon Labs CP210x
+                        {
+                            info.isEspDevice = true;
+                            info.rank = 4;
+                            if (info.pid == 0xEA60) {
+                                info.friendlyName.Format(_T("%s - Controller Target (CP2102/CP2104 Bridge)"), (LPCTSTR)strPort);
+                            } else if (info.pid == 0xEA70) {
+                                info.friendlyName.Format(_T("%s - Controller Target (CP2105 Dual Bridge)"), (LPCTSTR)strPort);
+                            } else {
+                                info.friendlyName.Format(_T("%s - Controller Target (CP210x Bridge)"), (LPCTSTR)strPort);
+                            }
+                        }
+                        else if (info.vid == 0x0403) // FTDI
+                        {
+                            info.isEspDevice = true;
+                            info.rank = 5;
+                            info.friendlyName.Format(_T("%s - Controller Target (FTDI Bridge)"), (LPCTSTR)strPort);
+                        }
+                        else
+                        {
+                            // Non-Target Device (Bluetooth, Motherboard serial, GPS, modem, etc.)
+                            info.isEspDevice = false;
+                            info.rank = 99;
+                            if (!friendly.IsEmpty()) {
+                                info.friendlyName.Format(_T("%s - %s"), (LPCTSTR)strPort, (LPCTSTR)friendly);
+                            } else {
+                                info.friendlyName.Format(_T("%s - Serial Device"), (LPCTSTR)strPort);
+                            }
+                        }
+
+                        results.push_back(info);
+                    }
+                }
+                RegCloseKey(hDevKey);
+            }
+        }
+        SetupDiDestroyDeviceInfoList(hDevInfo);
+    }
+
+    // 2. Fallback check from HARDWARE\DEVICEMAP\SERIALCOMM for any missed ports
+    HKEY hKey;
     if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, _T("HARDWARE\\DEVICEMAP\\SERIALCOMM"), 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
         TCHAR valueName[256];
         BYTE data[256];
@@ -411,7 +607,23 @@ std::vector<CString> CSerialComm::EnumeratePorts()
         while (RegEnumValue(hKey, idx, valueName, &valSize, NULL, &type, data, &dataSize) == ERROR_SUCCESS) {
             if (type == REG_SZ) {
                 CString portStr = (LPCTSTR)data;
-                ports.push_back(portStr);
+                bool alreadyFound = false;
+                for (const auto& r : results) {
+                    if (r.portName.CompareNoCase(portStr) == 0) {
+                        alreadyFound = true;
+                        break;
+                    }
+                }
+                if (!alreadyFound) {
+                    PortInfo info;
+                    info.portName = portStr;
+                    info.friendlyName.Format(_T("%s - Serial Port"), (LPCTSTR)portStr);
+                    info.isEspDevice = false;
+                    info.rank = 99;
+                    info.vid = 0;
+                    info.pid = 0;
+                    results.push_back(info);
+                }
             }
             valSize = sizeof(valueName) / sizeof(TCHAR);
             dataSize = sizeof(data);
@@ -420,5 +632,39 @@ std::vector<CString> CSerialComm::EnumeratePorts()
         RegCloseKey(hKey);
     }
 
+    return results;
+}
+
+std::vector<CString> CSerialComm::EnumeratePorts()
+{
+    std::vector<CString> ports;
+    std::vector<PortInfo> details = EnumerateDetailedPorts();
+    for (const auto& info : details) {
+        ports.push_back(info.portName);
+    }
     return ports;
 }
+
+CString CSerialComm::AutoDetectEspPort()
+{
+    std::vector<PortInfo> ports = EnumerateDetailedPorts();
+
+    // 1. Find the best candidate matching genuine ESP32 / USB-UART VIDs/PIDs
+    int bestIdx = -1;
+    int bestRank = 999;
+
+    for (size_t i = 0; i < ports.size(); i++) {
+        if (ports[i].isEspDevice && ports[i].rank < bestRank) {
+            bestRank = ports[i].rank;
+            bestIdx = (int)i;
+        }
+    }
+
+    if (bestIdx >= 0) {
+        return ports[bestIdx].portName;
+    }
+
+    // STRICT: Return empty if no VID/PID matched target device is found. Never connect to random COM port!
+    return _T("");
+}
+

@@ -28,3 +28,7 @@ __pycache__/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+*.apk
+SolarDisplayManager_Distribution/*.apk
+

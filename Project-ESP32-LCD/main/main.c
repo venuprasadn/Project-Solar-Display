@@ -29,16 +29,25 @@
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "driver/uart.h"
+#if CONFIG_IDF_TARGET_ESP32S3
+#include "driver/usb_serial_jtag.h"
+#endif
 #include "esp_system.h"
 #include "esp_flash.h"
 #include "esp_err.h"
 #include "nvs_flash.h"
+#include "wifi_manager.h"
+#include "esp_wifi.h"
+#include "esp_mac.h"
+#include "aws_iot_client.h"
+#include "ble_provisioning.h"
 #include "nvs.h"
 #include "lvgl.h"
 #include "assets/icons.h"
 #include "pcu_protocol.h"
 
 #include "assets/fonts_bold.h"
+#include "assets/master_oem_logo.h"
 
 /* Typography Font Declarations (High-Legibility Bold Fonts) */
 #define lv_font_montserrat_10   font_bold_10
@@ -52,7 +61,7 @@ static lv_image_dsc_t custom_logo_dsc;
 static uint8_t *custom_logo_pixels = NULL;
 static bool custom_logo_available = false;
 
-#define MAX_LOGO_BUFFER_SIZE  16384
+#define MAX_LOGO_BUFFER_SIZE  32768
 static uint8_t s_logo_staging_buf[MAX_LOGO_BUFFER_SIZE];
 static uint16_t s_logo_staging_len = 0;
 
@@ -60,137 +69,103 @@ static void init_custom_logo(void)
 {
     custom_logo_available = false;
 
-    /* 1. Try reading from NVS */
-    nvs_handle_t handle;
-    if (nvs_open("pcu_store", NVS_READONLY, &handle) == ESP_OK) {
-        size_t req_size = 0;
-        if (nvs_get_blob(handle, "pcu_logo", NULL, &req_size) == ESP_OK &&
-            req_size >= sizeof(pcu_logo_header_t) && req_size <= MAX_LOGO_BUFFER_SIZE) {
-            uint8_t *buf = malloc(req_size);
-            if (buf && nvs_get_blob(handle, "pcu_logo", buf, &req_size) == ESP_OK) {
-                pcu_logo_header_t *hdr = (pcu_logo_header_t *)buf;
-                if (hdr->magic == PCU_LOGO_MAGIC && req_size == sizeof(pcu_logo_header_t) + hdr->data_size) {
-                    uint32_t calc = pcu_calc_crc32(buf + sizeof(pcu_logo_header_t), hdr->data_size);
-                    if (calc == hdr->crc32) {
-                        custom_logo_pixels = buf + sizeof(pcu_logo_header_t);
-                        custom_logo_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
-                        if (hdr->cf == 2) {
-                            custom_logo_dsc.header.cf = LV_COLOR_FORMAT_ARGB8888;
-                            custom_logo_dsc.header.stride = hdr->width * 4;
-                        } else {
-                            custom_logo_dsc.header.cf = LV_COLOR_FORMAT_RGB565;
-                            custom_logo_dsc.header.stride = hdr->width * 2;
-                        }
-                        custom_logo_dsc.header.w = hdr->width;
-                        custom_logo_dsc.header.h = hdr->height;
-                        custom_logo_dsc.header.flags = 0;
-                        custom_logo_dsc.header.reserved_2 = 0;
-                        custom_logo_dsc.data_size = hdr->data_size;
-                        custom_logo_dsc.data = custom_logo_pixels;
-                        custom_logo_available = true;
-                        ESP_LOGI("PCU_LOGO", "Custom logo loaded from NVS: %dx%d, cf=%d, size=%lu",
-                                 hdr->width, hdr->height, hdr->cf, (unsigned long)hdr->data_size);
-                    } else {
-                        ESP_LOGE("PCU_LOGO", "NVS logo CRC mismatch (0x%08lX != 0x%08lX)",
-                                 (unsigned long)calc, (unsigned long)hdr->crc32);
-                    }
-                }
-            }
-            if (!custom_logo_available && buf) free(buf);
-        }
-        nvs_close(handle);
-    }
-
-    /* 2. Fallback to raw flash address 0x110000 */
-    if (!custom_logo_available) {
-        pcu_logo_header_t flash_hdr;
-        esp_err_t err = esp_flash_read(NULL, &flash_hdr, PCU_LOGO_FLASH_ADDR, sizeof(flash_hdr));
-        if (err == ESP_OK && flash_hdr.magic == PCU_LOGO_MAGIC && flash_hdr.data_size <= MAX_LOGO_BUFFER_SIZE) {
-            uint8_t *buf = malloc(flash_hdr.data_size);
-            if (buf) {
-                err = esp_flash_read(NULL, buf, PCU_LOGO_FLASH_ADDR + sizeof(flash_hdr), flash_hdr.data_size);
-                if (err == ESP_OK && pcu_calc_crc32(buf, flash_hdr.data_size) == flash_hdr.crc32) {
-                    custom_logo_pixels = buf;
-                    custom_logo_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
-                    if (flash_hdr.cf == 2) {
-                        custom_logo_dsc.header.cf = LV_COLOR_FORMAT_ARGB8888;
-                        custom_logo_dsc.header.stride = flash_hdr.width * 4;
-                    } else {
-                        custom_logo_dsc.header.cf = LV_COLOR_FORMAT_RGB565;
-                        custom_logo_dsc.header.stride = flash_hdr.width * 2;
-                    }
-                    custom_logo_dsc.header.w = flash_hdr.width;
-                    custom_logo_dsc.header.h = flash_hdr.height;
-                    custom_logo_dsc.header.flags = 0;
-                    custom_logo_dsc.header.reserved_2 = 0;
-                    custom_logo_dsc.data_size = flash_hdr.data_size;
-                    custom_logo_dsc.data = custom_logo_pixels;
-                    custom_logo_available = true;
-                    ESP_LOGI("PCU_LOGO", "Custom logo loaded from Flash 0x110000: %dx%d, cf=%d, size=%lu",
-                             flash_hdr.width, flash_hdr.height, flash_hdr.cf, (unsigned long)flash_hdr.data_size);
+    /* 1. Primary: Dedicated Raw Flash Partition at 0x410000 */
+    pcu_logo_header_t flash_hdr;
+    esp_err_t err = esp_flash_read(NULL, &flash_hdr, PCU_LOGO_FLASH_ADDR, sizeof(flash_hdr));
+    if (err == ESP_OK && flash_hdr.magic == PCU_LOGO_MAGIC && flash_hdr.data_size <= MAX_LOGO_BUFFER_SIZE) {
+        uint8_t *buf = malloc(flash_hdr.data_size);
+        if (buf) {
+            err = esp_flash_read(NULL, buf, PCU_LOGO_FLASH_ADDR + sizeof(flash_hdr), flash_hdr.data_size);
+            if (err == ESP_OK && pcu_calc_crc32(buf, flash_hdr.data_size) == flash_hdr.crc32) {
+                custom_logo_pixels = buf;
+                custom_logo_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
+                if (flash_hdr.cf == 2) {
+                    custom_logo_dsc.header.cf = LV_COLOR_FORMAT_ARGB8888;
+                    custom_logo_dsc.header.stride = flash_hdr.width * 4;
                 } else {
-                    ESP_LOGE("PCU_LOGO", "Flash logo CRC mismatch or read error");
-                    free(buf);
+                    custom_logo_dsc.header.cf = LV_COLOR_FORMAT_RGB565;
+                    custom_logo_dsc.header.stride = flash_hdr.width * 2;
                 }
+                custom_logo_dsc.header.w = flash_hdr.width;
+                custom_logo_dsc.header.h = flash_hdr.height;
+                custom_logo_dsc.header.flags = 0;
+                custom_logo_dsc.header.reserved_2 = 0;
+                custom_logo_dsc.data_size = flash_hdr.data_size;
+                custom_logo_dsc.data = custom_logo_pixels;
+                custom_logo_available = true;
+                ESP_LOGI("PCU_LOGO", "Custom logo loaded from Flash 0x410000: %dx%d, cf=%d, size=%lu",
+                         flash_hdr.width, flash_hdr.height, flash_hdr.cf, (unsigned long)flash_hdr.data_size);
+            } else {
+                ESP_LOGE("PCU_LOGO", "Flash logo CRC mismatch or read error");
+                free(buf);
             }
         }
     }
 
-    /* 3. Auto-sanitize background transparency for ARGB8888 custom logos */
-    if (custom_logo_available && custom_logo_dsc.header.cf == LV_COLOR_FORMAT_ARGB8888) {
-        uint32_t w = custom_logo_dsc.header.w;
-        uint32_t h = custom_logo_dsc.header.h;
-        uint8_t *pix = custom_logo_pixels;
-        if (pix && w > 0 && h > 0) {
-            uint8_t c_b = pix[0];
-            uint8_t c_g = pix[1];
-            uint8_t c_r = pix[2];
-            uint8_t c_a = pix[3];
-
-            if (c_a >= 240) {
-                uint32_t tr_idx = (w - 1) * 4;
-                uint32_t bl_idx = (h - 1) * w * 4;
-                uint32_t br_idx = ((h - 1) * w + (w - 1)) * 4;
-
-                bool is_legacy_dark = (abs((int)c_r - 12) <= 8 && abs((int)c_g - 21) <= 8 && abs((int)c_b - 36) <= 8);
-                bool corners_match = (abs((int)pix[tr_idx] - c_b) <= 6 && abs((int)pix[tr_idx + 1] - c_g) <= 6 && abs((int)pix[tr_idx + 2] - c_r) <= 6 &&
-                                      abs((int)pix[bl_idx] - c_b) <= 6 && abs((int)pix[bl_idx + 1] - c_g) <= 6 && abs((int)pix[bl_idx + 2] - c_r) <= 6 &&
-                                      abs((int)pix[br_idx] - c_b) <= 6 && abs((int)pix[br_idx + 1] - c_g) <= 6 && abs((int)pix[br_idx + 2] - c_r) <= 6);
-
-                if (is_legacy_dark || corners_match) {
-                    for (uint32_t i = 0; i < w * h; i++) {
-                        uint8_t *p = pix + i * 4;
-                        int dr = abs((int)p[2] - (int)c_r);
-                        int dg = abs((int)p[1] - (int)c_g);
-                        int db = abs((int)p[0] - (int)c_b);
-                        if (dr <= 6 && dg <= 6 && db <= 6) {
-                            p[0] = 0; p[1] = 0; p[2] = 0; p[3] = 0; // 100% transparent!
-                        } else if (dr <= 16 && dg <= 16 && db <= 16) {
-                            int max_d = dr;
-                            if (dg > max_d) max_d = dg;
-                            if (db > max_d) max_d = db;
-                            uint8_t alpha = (uint8_t)(((max_d - 6) * 255) / 10);
-                            if (alpha < p[3]) p[3] = alpha;
+    /* 2. Secondary fallback: NVS blob (if flash partition was unpopulated) */
+    if (!custom_logo_available) {
+        nvs_handle_t handle;
+        if (nvs_open("pcu_store", NVS_READONLY, &handle) == ESP_OK) {
+            size_t req_size = 0;
+            if (nvs_get_blob(handle, "pcu_logo", NULL, &req_size) == ESP_OK &&
+                req_size >= sizeof(pcu_logo_header_t) && req_size <= MAX_LOGO_BUFFER_SIZE) {
+                uint8_t *buf = malloc(req_size);
+                if (buf && nvs_get_blob(handle, "pcu_logo", buf, &req_size) == ESP_OK) {
+                    pcu_logo_header_t *hdr = (pcu_logo_header_t *)buf;
+                    if (hdr->magic == PCU_LOGO_MAGIC && req_size == sizeof(pcu_logo_header_t) + hdr->data_size) {
+                        uint32_t calc = pcu_calc_crc32(buf + sizeof(pcu_logo_header_t), hdr->data_size);
+                        if (calc == hdr->crc32) {
+                            custom_logo_pixels = buf + sizeof(pcu_logo_header_t);
+                            custom_logo_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
+                            if (hdr->cf == 2) {
+                                custom_logo_dsc.header.cf = LV_COLOR_FORMAT_ARGB8888;
+                                custom_logo_dsc.header.stride = hdr->width * 4;
+                            } else {
+                                custom_logo_dsc.header.cf = LV_COLOR_FORMAT_RGB565;
+                                custom_logo_dsc.header.stride = hdr->width * 2;
+                            }
+                            custom_logo_dsc.header.w = hdr->width;
+                            custom_logo_dsc.header.h = hdr->height;
+                            custom_logo_dsc.header.flags = 0;
+                            custom_logo_dsc.header.reserved_2 = 0;
+                            custom_logo_dsc.data_size = hdr->data_size;
+                            custom_logo_dsc.data = custom_logo_pixels;
+                            custom_logo_available = true;
+                            ESP_LOGI("PCU_LOGO", "Custom logo loaded from NVS: %dx%d, cf=%d, size=%lu",
+                                     hdr->width, hdr->height, hdr->cf, (unsigned long)hdr->data_size);
+                        } else {
+                            ESP_LOGE("PCU_LOGO", "NVS logo CRC mismatch (0x%08lX != 0x%08lX)",
+                                     (unsigned long)calc, (unsigned long)hdr->crc32);
                         }
                     }
-                    ESP_LOGI("PCU_LOGO", "Auto-keyed background color (R=%d, G=%d, B=%d) to transparent", c_r, c_g, c_b);
                 }
+                if (!custom_logo_available && buf) free(buf);
             }
+            nvs_close(handle);
         }
     }
 
     if (!custom_logo_available) {
-        ESP_LOGI("PCU_LOGO", "No custom logo active. Using default solar icon.");
+        ESP_LOGI("PCU_LOGO", "Using built-in master OEM logo.");
     }
 }
 
 static const lv_image_dsc_t *get_active_logo_dsc(void)
 {
     if (custom_logo_available) return &custom_logo_dsc;
-    return &img_solar;
+    return &master_oem_logo_dsc;
 }
 
 /* User LCD Pin Definitions */
+#if CONFIG_IDF_TARGET_ESP32S3
+#define LCD_HOST                SPI2_HOST
+#define PIN_NUM_MOSI            GPIO_NUM_11
+#define PIN_NUM_CLK             GPIO_NUM_12
+#define PIN_NUM_CS              GPIO_NUM_10
+#define PIN_NUM_DC              GPIO_NUM_9
+#define PIN_NUM_RST             GPIO_NUM_8
+#define PIN_NUM_BK_LIGHT        GPIO_NUM_4
+#else
 #define LCD_HOST                SPI2_HOST
 #define PIN_NUM_MOSI            GPIO_NUM_23
 #define PIN_NUM_CLK             GPIO_NUM_22
@@ -198,13 +173,14 @@ static const lv_image_dsc_t *get_active_logo_dsc(void)
 #define PIN_NUM_DC              GPIO_NUM_18
 #define PIN_NUM_RST             GPIO_NUM_21
 #define PIN_NUM_BK_LIGHT        GPIO_NUM_4
+#endif
 
 /* Display Dimensions */
 #define LCD_H_RES               240
 #define LCD_V_RES               320
 #define LCD_PIXEL_CLOCK_HZ      (20 * 1000 * 1000)
 
-#define LVGL_DRAW_BUF_LINES     40
+#define LVGL_DRAW_BUF_LINES     20
 #define LVGL_TICK_PERIOD_MS     2
 
 /* Dedicated Inverter Serial Port (UART2) */
@@ -311,24 +287,24 @@ typedef struct {
 } inverter_data_t;
 
 static inverter_data_t inv_data = {
-    .onflag = 1,
-    .dcboostmode = 1,
-    .dcok = 1,
+    .onflag = 0,
+    .dcboostmode = 0,
+    .dcok = 0,
     .sharemode = 0,
     .batgravity = 0,
     .feedmode = 0,
-    .solarstate = SOLARON,
-    .chargerstate = SOLAR_CHARGER,
-    .switchstate = INVSWITCH,
-    .mainsvolt = 228.0f,
-    .solarvolt = 76.5f,
-    .battvolts = 26.8f,
-    .acout = 230.0f,
-    .loaddisp = 42.0f,
-    .chrampsdisp = 16.4f,
+    .solarstate = SOLAR_OFF,
+    .chargerstate = CHARGER_OFF,
+    .switchstate = INV_OFF,
+    .mainsvolt = 0.0f,
+    .solarvolt = 0.0f,
+    .battvolts = 0.0f,
+    .acout = 0.0f,
+    .loaddisp = 0.0f,
+    .chrampsdisp = 0.0f,
     .dischdisp = 0.0f,
-    .dcboost = 385.0f,
-    .upsheat = 38.5f,
+    .dcboost = 0.0f,
+    .upsheat = 0.0f,
     .error_code = 0,
     .rx_packet_count = 0,
     .last_rx_tick = 0,
@@ -338,15 +314,35 @@ static inverter_data_t inv_data = {
 /* Global Production Configuration */
 static pcu_config_t g_pcu_cfg;
 
-/* Page Navigation */
-#define TOTAL_PAGES 6
+/* Page Navigation & Dynamic Model Configuration */
+#define MAX_PAGES 7
+static int g_active_page_count = 6;
 static int current_page = 0;
-static lv_obj_t *pages[TOTAL_PAGES];
-static lv_obj_t *page_dots[TOTAL_PAGES];
-static lv_obj_t *rtc_time_lbl;
-static lv_obj_t *footer_page_lbl;
+static lv_obj_t *pages[MAX_PAGES];
+static lv_obj_t *page_dots[MAX_PAGES];
+static lv_obj_t *footer_page_lbl = NULL;
 static lv_obj_t *g_main_screen_obj = NULL;
 static lv_obj_t *g_error_scr = NULL;
+
+/* Header Wi-Fi Coverage & Status Indicator Widgets (Replaces Clock Timer) */
+static lv_obj_t *hdr_wifi_box = NULL;
+static lv_obj_t *hdr_wifi_bar1 = NULL;
+static lv_obj_t *hdr_wifi_bar2 = NULL;
+static lv_obj_t *hdr_wifi_bar3 = NULL;
+static lv_obj_t *hdr_wifi_bar4 = NULL;
+static lv_obj_t *hdr_wifi_status_lbl = NULL;
+
+/* Wi-Fi Network & Cloud Status Screen Widgets */
+static lv_obj_t *p6_ssid_val = NULL;
+static lv_obj_t *p6_wifi_badge = NULL;
+static lv_obj_t *p6_ip_val = NULL;
+static lv_obj_t *p6_rssi_val = NULL;
+static lv_obj_t *p6_rssi_bar = NULL;
+static lv_obj_t *p6_prov_stat = NULL;
+static lv_obj_t *p6_server_stat = NULL;
+static lv_obj_t *p6_dev_val = NULL;
+static lv_obj_t *p6_serial_val = NULL;
+static lv_obj_t *p6_mac_val = NULL;
 
 /* Dedicated Critical Error / Fault Screen Widgets (Always Red Industrial Alert) */
 static lv_obj_t *err_hdr_box = NULL;
@@ -656,27 +652,45 @@ static lv_obj_t *create_card(lv_obj_t *parent, int32_t x, int32_t y, int32_t w, 
     return card;
 }
 
-static const char *page_titles[TOTAL_PAGES] = {
-    "ENERGY FLOW HUB",
-    "SOLAR PV & CHARGER",
-    "BATTERY & INVERTER LOAD",
-    "SYSTEM OPERATIONAL STATUS",
-    "SOLAR HARVEST & PRODUCTION",
-    "OEM VENDOR & SUPPORT"
-};
+static const char *get_page_title(int page_idx)
+{
+    bool has_app = (g_pcu_cfg.model_features & MODEL_FEATURE_MOBILE_APP) != 0;
+    if (has_app) {
+        switch (page_idx) {
+            case 0: return "ENERGY FLOW HUB";
+            case 1: return "SOLAR PV & CHARGER";
+            case 2: return "BATTERY & INVERTER LOAD";
+            case 3: return "SYSTEM OPERATIONAL STATUS";
+            case 4: return "SOLAR HARVEST & PRODUCTION";
+            case 5: return "WI-FI & CLOUD CONNECTIVITY";
+            case 6: return "OEM VENDOR & SUPPORT";
+            default: return "";
+        }
+    } else {
+        switch (page_idx) {
+            case 0: return "ENERGY FLOW HUB";
+            case 1: return "SOLAR PV & CHARGER";
+            case 2: return "BATTERY & INVERTER LOAD";
+            case 3: return "SYSTEM OPERATIONAL STATUS";
+            case 4: return "SOLAR HARVEST & PRODUCTION";
+            case 5: return "OEM VENDOR & SUPPORT";
+            default: return "";
+        }
+    }
+}
 
 /* Switch Visible Page */
 static void switch_to_page(int page_idx)
 {
-    if (page_idx < 0 || page_idx >= TOTAL_PAGES) return;
+    if (page_idx < 0 || page_idx >= g_active_page_count) return;
     current_page = page_idx;
 
     const pcu_theme_t *th = get_active_theme();
     if (footer_page_lbl) {
-        lv_label_set_text(footer_page_lbl, page_titles[current_page]);
+        lv_label_set_text(footer_page_lbl, get_page_title(current_page));
         lv_obj_set_style_text_color(footer_page_lbl, lv_color_hex(th->secondary), 0);
     }
-    for (int i = 0; i < TOTAL_PAGES; i++) {
+    for (int i = 0; i < g_active_page_count; i++) {
         if (pages[i]) {
             if (i == current_page) {
                 lv_obj_clear_flag(pages[i], LV_OBJ_FLAG_HIDDEN);
@@ -695,6 +709,7 @@ static void switch_to_page(int page_idx)
         }
     }
 }
+
 
 
 /* Dedicated Protection / Fault Screen (Never part of carousel/scroll, Theme-Independent Always-Red) */
@@ -905,7 +920,7 @@ static void update_error_screen(int code)
 static void page_carousel_timer_cb(lv_timer_t *timer)
 {
     if (inv_data.error_code != 0) return; // Freeze carousel during fault
-    int next_p = (current_page + 1) % TOTAL_PAGES;
+    int next_p = (current_page + 1) % g_active_page_count;
     switch_to_page(next_p);
 }
 
@@ -922,18 +937,71 @@ static void fast_anim_timer_cb(lv_timer_t *timer)
     }
 }
 
-/* 1-Second Global Telemetry & Uptime Refresh */
+/* 1-Second Global Telemetry & Status Refresh */
 static void telemetry_refresh_timer_cb(lv_timer_t *timer)
 {
-    /* 1. Live Operating Uptime (Replacing RTC Clock) */
-    uint32_t uptime_sec = (uint32_t)(esp_timer_get_time() / 1000000ULL);
-    uint32_t hrs = uptime_sec / 3600;
-    uint32_t mins = (uptime_sec % 3600) / 60;
-    uint32_t secs = uptime_sec % 60;
+    /* 1. Industrial Telemetry Data Timeout Guard (5-second freshness rule) */
+    uint32_t now_sec = (uint32_t)(esp_timer_get_time() / 1000000ULL);
+    if (!inv_data.live_serial_active || (now_sec - inv_data.last_rx_tick) >= 5) {
+        inv_data.live_serial_active = false;
+        inv_data.mainsvolt = 0.0f;
+        inv_data.solarvolt = 0.0f;
+        inv_data.battvolts = 0.0f;
+        inv_data.acout = 0.0f;
+        inv_data.loaddisp = 0.0f;
+        inv_data.chrampsdisp = 0.0f;
+        inv_data.dischdisp = 0.0f;
+        inv_data.dcboost = 0.0f;
+        inv_data.upsheat = 0.0f;
+        inv_data.onflag = 0;
+        inv_data.solarstate = SOLAR_OFF;
+        inv_data.chargerstate = CHARGER_OFF;
+        inv_data.switchstate = INV_OFF;
+        inv_data.dcboostmode = 0;
+        inv_data.dcok = 0;
+        inv_data.feedmode = 0;
+    }
 
-    char time_buf[32];
-    snprintf(time_buf, sizeof(time_buf), "%02u:%02u:%02u", (unsigned int)hrs, (unsigned int)mins, (unsigned int)secs);
-    if (rtc_time_lbl) lv_label_set_text(rtc_time_lbl, time_buf);
+    /* 2. Update Top-Right Header Wi-Fi Coverage & Status Symbol */
+    if (hdr_wifi_box) {
+        bool wifi_up = wifi_manager_is_connected();
+        if (!wifi_up) {
+            lv_color_t dim_c = lv_color_hex(0x475569); // Slate 600
+            lv_obj_set_style_bg_color(hdr_wifi_bar1, dim_c, 0);
+            lv_obj_set_style_bg_color(hdr_wifi_bar2, dim_c, 0);
+            lv_obj_set_style_bg_color(hdr_wifi_bar3, dim_c, 0);
+            lv_obj_set_style_bg_color(hdr_wifi_bar4, dim_c, 0);
+            lv_label_set_text(hdr_wifi_status_lbl, "OFFLINE");
+            lv_obj_set_style_text_color(hdr_wifi_status_lbl, lv_color_hex(0xef4444), 0); // Warning Red
+        } else {
+            wifi_ap_record_t ap;
+            int rssi = -70;
+            if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
+                rssi = ap.rssi;
+            }
+            int bars = 1;
+            if (rssi >= -55) bars = 4;
+            else if (rssi >= -70) bars = 3;
+            else if (rssi >= -82) bars = 2;
+            else bars = 1;
+
+            bool app_live = aws_iot_is_app_client_active();
+            lv_color_t act_c = app_live ? lv_color_hex(0x38bdf8) : lv_color_hex(0x10b981); // Sky blue when live, Emerald green when standby
+            lv_color_t dim_c = lv_color_hex(0x334155);
+
+            lv_obj_set_style_bg_color(hdr_wifi_bar1, (bars >= 1) ? act_c : dim_c, 0);
+            lv_obj_set_style_bg_color(hdr_wifi_bar2, (bars >= 2) ? act_c : dim_c, 0);
+            lv_obj_set_style_bg_color(hdr_wifi_bar3, (bars >= 3) ? act_c : dim_c, 0);
+            lv_obj_set_style_bg_color(hdr_wifi_bar4, (bars >= 4) ? act_c : dim_c, 0);
+
+            if (app_live) {
+                lv_label_set_text(hdr_wifi_status_lbl, "LIVE");
+            } else {
+                lv_label_set_text(hdr_wifi_status_lbl, "WI-FI");
+            }
+            lv_obj_set_style_text_color(hdr_wifi_status_lbl, act_c, 0);
+        }
+    }
 
     /* Dedicated Protection / Fault Screen Control */
     if (inv_data.error_code != 0) {
@@ -946,17 +1014,6 @@ static void telemetry_refresh_timer_cb(lv_timer_t *timer)
             lv_screen_load(g_main_screen_obj);
             switch_to_page(current_page);
         }
-    }
-
-    /* 2. Simulation dynamics if no live serial packet arrived */
-    static uint32_t sim_tick = 0;
-    sim_tick = (sim_tick + 1) & 0x7FFFFFFFU;  /* Clean wrap-around, no signed overflow */
-    if (!inv_data.live_serial_active) {
-        inv_data.solarvolt = 75.0f + 2.5f * sinf((float)sim_tick * 0.1f);
-        inv_data.battvolts = 26.6f + 0.3f * sinf((float)sim_tick * 0.05f);
-        inv_data.chrampsdisp = 15.0f + 2.0f * sinf((float)sim_tick * 0.15f);
-        inv_data.loaddisp = 42.0f + 7.0f * sinf((float)sim_tick * 0.12f);
-        inv_data.upsheat = 38.0f + 1.5f * sinf((float)sim_tick * 0.08f);
     }
 
     char buf[32];
@@ -1518,22 +1575,33 @@ static void telemetry_refresh_timer_cb(lv_timer_t *timer)
     }
 
     /* --- Page 4 Updates (Past 8-Hour Line Graph Live Telemetry) --- */
-    static float today_kwh_accum = 14.8f;
-    today_kwh_accum += 0.001f;
-    if (today_kwh_accum > 9999.9f) today_kwh_accum = 9999.9f;  /* Clamp to prevent float precision loss */
+    static float today_kwh_accum = 0.0f;
+    static float peak_w = 0.0f;
+    static int32_t history_solar[8] = { 0 };
+    static int32_t history_load[8]  = { 0 };
+    static uint32_t p4_tick = 0;
+    p4_tick++;
+
+    float live_solar_w = 0.0f;
+    if (inv_data.live_serial_active) {
+        live_solar_w = inv_data.solarvolt * inv_data.chrampsdisp;
+        if (live_solar_w > peak_w) peak_w = live_solar_w;
+        today_kwh_accum += (live_solar_w / 3600000.0f);
+        if (today_kwh_accum > 9999.9f) today_kwh_accum = 9999.9f;
+    } else {
+        peak_w = 0.0f;
+        today_kwh_accum = 0.0f;
+        for (int i = 0; i < 8; i++) {
+            history_solar[i] = 0;
+            history_load[i]  = 0;
+        }
+    }
+
     snprintf(buf, sizeof(buf), "%.1f kWh", today_kwh_accum);
     if (p4_today_kwh) lv_label_set_text(p4_today_kwh, buf);
 
-    float live_solar_w = inv_data.solarvolt * (inv_data.chrampsdisp + (inv_data.solarstate == SOLARON ? 5.0f : 0.0f));
-    float peak_w = (live_solar_w > 50.0f) ? live_solar_w + 320.0f : 2480.0f;
     snprintf(buf, sizeof(buf), "%.0f W", peak_w);
     if (p4_peak_w) lv_label_set_text(p4_peak_w, buf);
-
-    /* 8-Hour Rolling Line Graph */
-    static int32_t history_solar[8] = { 12, 28, 54, 80, 90, 72, 50, 35 };
-    static int32_t history_load[8]  = { 32, 40, 45, 50, 52, 48, 42, 42 };
-    static uint32_t p4_tick = 0;
-    p4_tick++;
 
     int32_t now_solar = (int32_t)((live_solar_w / 2500.0f) * 100.0f);
     if (now_solar > 100) now_solar = 100;
@@ -1547,7 +1615,7 @@ static void telemetry_refresh_timer_cb(lv_timer_t *timer)
     history_load[7]  = now_load;
 
     /* Roll historical points every 15 ticks */
-    if ((p4_tick % 15) == 0) {
+    if ((p4_tick % 15) == 0 && inv_data.live_serial_active) {
         for (int i = 0; i < 6; i++) {
             history_solar[i] = history_solar[i + 1];
             history_load[i]  = history_load[i + 1];
@@ -1568,7 +1636,63 @@ static void telemetry_refresh_timer_cb(lv_timer_t *timer)
         snprintf(buf, sizeof(buf), "PV:%.0fW | LOAD:%.0f%%", live_solar_w, inv_data.loaddisp);
         lv_label_set_text(p4_trend_badge, buf);
     }
+
+    /* --- Wi-Fi, Provisioning & Cloud Status Screen Updates --- */
+    if (p6_wifi_badge) {
+        bool wifi_up = wifi_manager_is_connected();
+        if (wifi_up) {
+            lv_label_set_text(p6_wifi_badge, "CONNECTED");
+            lv_obj_set_style_bg_color(p6_wifi_badge, lv_color_hex(0x059669), 0); // Green
+        } else {
+            lv_label_set_text(p6_wifi_badge, "DISCONNECTED");
+            lv_obj_set_style_bg_color(p6_wifi_badge, lv_color_hex(0xb91c1c), 0); // Red
+        }
+
+        if (p6_ssid_val) {
+            lv_label_set_text(p6_ssid_val, wifi_manager_get_ssid());
+        }
+        if (p6_ip_val) {
+            char ip_buf[32];
+            snprintf(ip_buf, sizeof(ip_buf), "IP: %s", wifi_manager_get_ip_str());
+            lv_label_set_text(p6_ip_val, ip_buf);
+        }
+        if (p6_rssi_val && p6_rssi_bar) {
+            if (wifi_up) {
+                wifi_ap_record_t ap;
+                int rssi = -100;
+                if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
+                    rssi = ap.rssi;
+                }
+                int pct = 2 * (rssi + 100);
+                if (pct > 100) pct = 100;
+                if (pct < 0) pct = 0;
+                char rssi_buf[32];
+                snprintf(rssi_buf, sizeof(rssi_buf), "SIGNAL: %d dBm (%d%%)", rssi, pct);
+                lv_label_set_text(p6_rssi_val, rssi_buf);
+                lv_bar_set_value(p6_rssi_bar, pct, LV_ANIM_OFF);
+            } else {
+                lv_label_set_text(p6_rssi_val, "SIGNAL: OFFLINE");
+                lv_bar_set_value(p6_rssi_bar, 0, LV_ANIM_OFF);
+            }
+        }
+        if (p6_server_stat) {
+            if (aws_iot_is_app_client_active()) {
+                lv_label_set_text(p6_server_stat, "APP: LIVE SYNC");
+                lv_obj_set_style_text_color(p6_server_stat, lv_color_hex(0x38bdf8), 0); // Sky Blue
+            } else if (aws_iot_client_is_connected()) {
+                lv_label_set_text(p6_server_stat, "APP: IDLE (STANDBY)");
+                lv_obj_set_style_text_color(p6_server_stat, lv_color_hex(0x10b981), 0); // Emerald Green
+            } else if (wifi_up) {
+                lv_label_set_text(p6_server_stat, "SERVER: CONNECTING...");
+                lv_obj_set_style_text_color(p6_server_stat, lv_color_hex(0xf59e0b), 0);
+            } else {
+                lv_label_set_text(p6_server_stat, "SERVER: OFFLINE");
+                lv_obj_set_style_text_color(p6_server_stat, lv_color_hex(0xef4444), 0);
+            }
+        }
+    }
 }
+
 
 
 /* ========================================================================= */
@@ -2253,10 +2377,10 @@ static void build_page_4(lv_obj_t *parent)
     }
 }
 
-static void build_page_5(lv_obj_t *parent)
+static void build_vendor_screen(lv_obj_t *parent, int page_idx)
 {
     const pcu_theme_t *th = get_active_theme();
-    /* Page 5: OEM Vendor & Brand Support */
+    /* OEM Vendor & Brand Support */
     lv_obj_t *page = lv_obj_create(parent);
     lv_obj_set_pos(page, 0, 26);
     lv_obj_set_size(page, 320, 190);
@@ -2265,7 +2389,7 @@ static void build_page_5(lv_obj_t *parent)
     lv_obj_set_style_pad_all(page, 3, 0);
     lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(page, LV_OBJ_FLAG_HIDDEN);
-    pages[5] = page;
+    pages[page_idx] = page;
 
     lv_color_t primary_color = lv_color_hex(th->primary);
     lv_color_t sec_color = lv_color_hex(th->secondary);
@@ -2373,6 +2497,125 @@ static void build_page_5(lv_obj_t *parent)
     lv_obj_set_pos(p5_website, 90, 66);
 }
 
+static void build_wifi_screen(lv_obj_t *parent, int page_idx)
+{
+    const pcu_theme_t *th = get_active_theme();
+    lv_obj_t *page = lv_obj_create(parent);
+    lv_obj_set_pos(page, 0, 26);
+    lv_obj_set_size(page, 320, 190);
+    lv_obj_set_style_bg_color(page, lv_color_hex(th->screen_bg), 0);
+    lv_obj_set_style_border_width(page, 0, 0);
+    lv_obj_set_style_pad_all(page, 3, 0);
+    lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(page, LV_OBJ_FLAG_HIDDEN);
+    pages[page_idx] = page;
+
+    lv_color_t primary_color = lv_color_hex(th->primary);
+    lv_color_t sec_color = lv_color_hex(th->secondary);
+
+    /* Card 1: Wi-Fi Network & BLE Provisioning (314 x 88) */
+    lv_obj_t *c1 = create_card(page, 0, 0, 314, 88);
+
+    lv_obj_t *hdr1 = lv_label_create(c1);
+    lv_label_set_text(hdr1, "WI-FI NETWORK & PROVISIONING");
+    lv_obj_set_style_text_font(hdr1, &font_bold_10, 0);
+    lv_obj_set_style_text_color(hdr1, sec_color, 0);
+    lv_obj_set_pos(hdr1, 6, 4);
+
+    p6_wifi_badge = lv_label_create(c1);
+    lv_label_set_text(p6_wifi_badge, "DISCONNECTED");
+    lv_obj_set_style_text_font(p6_wifi_badge, &font_bold_10, 0);
+    lv_obj_set_style_text_color(p6_wifi_badge, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_bg_color(p6_wifi_badge, lv_color_hex(0xb91c1c), 0);
+    lv_obj_set_style_bg_opa(p6_wifi_badge, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(p6_wifi_badge, 3, 0);
+    lv_obj_set_style_pad_hor(p6_wifi_badge, 6, 0);
+    lv_obj_set_style_pad_ver(p6_wifi_badge, 2, 0);
+    lv_obj_align(p6_wifi_badge, LV_ALIGN_TOP_RIGHT, -6, 3);
+
+    /* SSID Label */
+    p6_ssid_val = lv_label_create(c1);
+    lv_label_set_text(p6_ssid_val, wifi_manager_get_ssid());
+    lv_obj_set_style_text_font(p6_ssid_val, &font_bold_14, 0);
+    lv_obj_set_style_text_color(p6_ssid_val, primary_color, 0);
+    lv_obj_set_pos(p6_ssid_val, 6, 22);
+
+    /* IP Address */
+    p6_ip_val = lv_label_create(c1);
+    lv_label_set_text(p6_ip_val, "IP: 0.0.0.0");
+    lv_obj_set_style_text_font(p6_ip_val, &font_bold_10, 0);
+    lv_obj_set_style_text_color(p6_ip_val, lv_color_hex(th->text_main), 0);
+    lv_obj_set_pos(p6_ip_val, 6, 44);
+
+    /* Signal Strength */
+    p6_rssi_val = lv_label_create(c1);
+    lv_label_set_text(p6_rssi_val, "SIGNAL: --- dBm");
+    lv_obj_set_style_text_font(p6_rssi_val, &font_bold_10, 0);
+    lv_obj_set_style_text_color(p6_rssi_val, lv_color_hex(th->text_main), 0);
+    lv_obj_set_pos(p6_rssi_val, 160, 44);
+
+    /* Signal Bar */
+    p6_rssi_bar = lv_bar_create(c1);
+    lv_obj_set_size(p6_rssi_bar, 140, 5);
+    lv_obj_set_pos(p6_rssi_bar, 160, 58);
+    lv_bar_set_range(p6_rssi_bar, 0, 100);
+    lv_bar_set_value(p6_rssi_bar, 0, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(p6_rssi_bar, lv_color_hex(0x1e293b), 0);
+    lv_obj_set_style_bg_color(p6_rssi_bar, primary_color, LV_PART_INDICATOR);
+
+    /* Provisioning State */
+    p6_prov_stat = lv_label_create(c1);
+    lv_label_set_text(p6_prov_stat, "PROVISION: BLE CONFIGURED");
+    lv_obj_set_style_text_font(p6_prov_stat, &font_bold_10, 0);
+    lv_obj_set_style_text_color(p6_prov_stat, lv_color_hex(0x94a3b8), 0);
+    lv_obj_set_pos(p6_prov_stat, 6, 64);
+
+    /* Card 2: Cloud Server & Hardware Identifiers (314 x 88) */
+    lv_obj_t *c2 = create_card(page, 0, 92, 314, 88);
+
+    lv_obj_t *hdr2 = lv_label_create(c2);
+    lv_label_set_text(hdr2, "CLOUD SERVER SYNC");
+    lv_obj_set_style_text_font(hdr2, &font_bold_10, 0);
+    lv_obj_set_style_text_color(hdr2, sec_color, 0);
+    lv_obj_set_pos(hdr2, 6, 4);
+
+    p6_server_stat = lv_label_create(c2);
+    lv_label_set_text(p6_server_stat, "SERVER: CONNECTING...");
+    lv_obj_set_style_text_font(p6_server_stat, &font_bold_10, 0);
+    lv_obj_set_style_text_color(p6_server_stat, lv_color_hex(0xf59e0b), 0);
+    lv_obj_align(p6_server_stat, LV_ALIGN_TOP_RIGHT, -6, 4);
+
+    /* Device Model Name */
+    p6_dev_val = lv_label_create(c2);
+    char dev_str[48];
+    snprintf(dev_str, sizeof(dev_str), "DEVICE : %s", g_pcu_cfg.model_name);
+    lv_label_set_text(p6_dev_val, dev_str);
+    lv_obj_set_style_text_font(p6_dev_val, &font_bold_12, 0);
+    lv_obj_set_style_text_color(p6_dev_val, primary_color, 0);
+    lv_obj_set_pos(p6_dev_val, 6, 24);
+
+    /* Real Hardware Serial Number */
+    p6_serial_val = lv_label_create(c2);
+    char sn_str[48];
+    snprintf(sn_str, sizeof(sn_str), "SERIAL : %s", g_pcu_cfg.serial_number);
+    lv_label_set_text(p6_serial_val, sn_str);
+    lv_obj_set_style_text_font(p6_serial_val, &font_bold_12, 0);
+    lv_obj_set_style_text_color(p6_serial_val, lv_color_hex(th->text_main), 0);
+    lv_obj_set_pos(p6_serial_val, 6, 44);
+
+    /* Hardware MAC address */
+    p6_mac_val = lv_label_create(c2);
+    uint8_t mac[6];
+    esp_efuse_mac_get_default(mac);
+    char mac_str[32];
+    snprintf(mac_str, sizeof(mac_str), "MAC    : %02X:%02X:%02X:%02X:%02X:%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    lv_label_set_text(p6_mac_val, mac_str);
+    lv_obj_set_style_text_font(p6_mac_val, &font_bold_10, 0);
+    lv_obj_set_style_text_color(p6_mac_val, lv_color_hex(th->text_muted), 0);
+    lv_obj_set_pos(p6_mac_val, 6, 66);
+}
+
 /* ========================================================================= */
 /* MAIN DASHBOARD SHELL (HEADER + PAGES + FOOTER)                            */
 /* ========================================================================= */
@@ -2382,6 +2625,9 @@ static void build_dashboard_shell(lv_obj_t *scr)
     const pcu_theme_t *th = get_active_theme();
     lv_obj_set_style_bg_color(scr, lv_color_hex(th->screen_bg), 0);
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* Determine active page count based on model feature configuration */
+    g_active_page_count = (g_pcu_cfg.model_features & MODEL_FEATURE_MOBILE_APP) ? 7 : 6;
 
     /* --- TOP BAR (w: 320, h: 26) --- */
     lv_obj_t *header = lv_obj_create(scr);
@@ -2406,23 +2652,68 @@ static void build_dashboard_shell(lv_obj_t *scr)
     lv_label_set_text(brand, header_brand_buf);
     lv_obj_set_style_text_font(brand, &font_bold_12, 0);
     lv_obj_set_style_text_color(brand, lv_color_hex(th->primary), 0);
-    lv_obj_set_width(brand, 220);
+    lv_obj_set_width(brand, 215);
     lv_label_set_long_mode(brand, LV_LABEL_LONG_DOT);
     lv_obj_align(brand, LV_ALIGN_LEFT_MID, 2, 0);
 
-    rtc_time_lbl = lv_label_create(header);
-    lv_label_set_text(rtc_time_lbl, "00:00:00");
-    lv_obj_set_style_text_font(rtc_time_lbl, &font_bold_12, 0);
-    lv_obj_set_style_text_color(rtc_time_lbl, lv_color_hex(th->secondary), 0);
-    lv_obj_align(rtc_time_lbl, LV_ALIGN_RIGHT_MID, -2, 0);
+    /* Wi-Fi Coverage Symbol in Top-Right Header (Replaces Timer) */
+    if (g_pcu_cfg.model_features & MODEL_FEATURE_MOBILE_APP) {
+        hdr_wifi_box = lv_obj_create(header);
+        lv_obj_set_size(hdr_wifi_box, 72, 20);
+        lv_obj_set_style_bg_opa(hdr_wifi_box, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(hdr_wifi_box, 0, 0);
+        lv_obj_set_style_pad_all(hdr_wifi_box, 0, 0);
+        lv_obj_remove_flag(hdr_wifi_box, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_align(hdr_wifi_box, LV_ALIGN_RIGHT_MID, -2, 0);
 
-    /* Build all 6 pages */
+        hdr_wifi_bar1 = lv_obj_create(hdr_wifi_box);
+        lv_obj_set_pos(hdr_wifi_bar1, 0, 11);
+        lv_obj_set_size(hdr_wifi_bar1, 3, 4);
+        lv_obj_set_style_radius(hdr_wifi_bar1, 1, 0);
+        lv_obj_set_style_border_width(hdr_wifi_bar1, 0, 0);
+        lv_obj_set_style_bg_color(hdr_wifi_bar1, lv_color_hex(0x475569), 0);
+
+        hdr_wifi_bar2 = lv_obj_create(hdr_wifi_box);
+        lv_obj_set_pos(hdr_wifi_bar2, 5, 8);
+        lv_obj_set_size(hdr_wifi_bar2, 3, 7);
+        lv_obj_set_style_radius(hdr_wifi_bar2, 1, 0);
+        lv_obj_set_style_border_width(hdr_wifi_bar2, 0, 0);
+        lv_obj_set_style_bg_color(hdr_wifi_bar2, lv_color_hex(0x475569), 0);
+
+        hdr_wifi_bar3 = lv_obj_create(hdr_wifi_box);
+        lv_obj_set_pos(hdr_wifi_bar3, 10, 5);
+        lv_obj_set_size(hdr_wifi_bar3, 3, 10);
+        lv_obj_set_style_radius(hdr_wifi_bar3, 1, 0);
+        lv_obj_set_style_border_width(hdr_wifi_bar3, 0, 0);
+        lv_obj_set_style_bg_color(hdr_wifi_bar3, lv_color_hex(0x475569), 0);
+
+        hdr_wifi_bar4 = lv_obj_create(hdr_wifi_box);
+        lv_obj_set_pos(hdr_wifi_bar4, 15, 2);
+        lv_obj_set_size(hdr_wifi_bar4, 3, 13);
+        lv_obj_set_style_radius(hdr_wifi_bar4, 1, 0);
+        lv_obj_set_style_border_width(hdr_wifi_bar4, 0, 0);
+        lv_obj_set_style_bg_color(hdr_wifi_bar4, lv_color_hex(0x475569), 0);
+
+        hdr_wifi_status_lbl = lv_label_create(hdr_wifi_box);
+        lv_label_set_text(hdr_wifi_status_lbl, "OFFLINE");
+        lv_obj_set_style_text_font(hdr_wifi_status_lbl, &font_bold_10, 0);
+        lv_obj_set_style_text_color(hdr_wifi_status_lbl, lv_color_hex(0xef4444), 0);
+        lv_obj_set_pos(hdr_wifi_status_lbl, 22, 3);
+    }
+
+    /* Build all active pages: Wi-Fi screen is before Vendor screen */
     build_page_0(scr);
     build_page_1(scr);
     build_page_2(scr);
     build_page_3(scr);
     build_page_4(scr);
-    build_page_5(scr);
+    if (g_pcu_cfg.model_features & MODEL_FEATURE_MOBILE_APP) {
+        build_wifi_screen(scr, 5);
+        build_vendor_screen(scr, 6);
+    } else {
+        build_vendor_screen(scr, 5);
+        pages[6] = NULL;
+    }
 
     /* --- FOOTER BAR (w: 320, h: 24) --- */
     lv_obj_t *footer = lv_obj_create(scr);
@@ -2438,21 +2729,21 @@ static void build_dashboard_shell(lv_obj_t *scr)
     lv_obj_remove_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     footer_page_lbl = lv_label_create(footer);
-    lv_label_set_text(footer_page_lbl, page_titles[0]);
+    lv_label_set_text(footer_page_lbl, get_page_title(0));
     lv_obj_set_style_text_font(footer_page_lbl, &font_bold_10, 0);
     lv_obj_set_style_text_color(footer_page_lbl, lv_color_hex(th->secondary), 0);
     lv_obj_align(footer_page_lbl, LV_ALIGN_LEFT_MID, 2, 0);
 
     /* Page Navigation Dots Container */
     lv_obj_t *dots_box = lv_obj_create(footer);
-    lv_obj_set_size(dots_box, 90, 14);
+    lv_obj_set_size(dots_box, g_active_page_count * 14 + 10, 14);
     lv_obj_align(dots_box, LV_ALIGN_RIGHT_MID, 0, 0);
     lv_obj_set_style_bg_opa(dots_box, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(dots_box, 0, 0);
     lv_obj_set_style_pad_all(dots_box, 0, 0);
     lv_obj_remove_flag(dots_box, LV_OBJ_FLAG_SCROLLABLE);
 
-    for (int i = 0; i < TOTAL_PAGES; i++) {
+    for (int i = 0; i < g_active_page_count; i++) {
         page_dots[i] = lv_obj_create(dots_box);
         lv_obj_set_size(page_dots[i], (i == 0) ? 14 : 6, 6);
         lv_obj_set_style_radius(page_dots[i], 3, 0);
@@ -2745,7 +3036,7 @@ static void parse_and_apply_telemetry_line(const char *line_buf)
         char *endptr = NULL;
         long p = strtol(&line_buf[6], &endptr, 10);
         if (endptr == &line_buf[6]) return;  /* No valid digits — reject */
-        if (p >= 0 && p < TOTAL_PAGES) {
+        if (p >= 0 && p < g_active_page_count) {
             _lock_acquire(&lvgl_api_lock);
             switch_to_page((int)p);
             _lock_release(&lvgl_api_lock);
@@ -2838,6 +3129,7 @@ static void config_set_factory_defaults(pcu_config_t *cfg)
     cfg->carousel_interval_sec = 5; // 5 seconds per screen
     cfg->backlight_brightness = 100;
     cfg->telemetry_baudrate = 9600;
+    cfg->model_features = MODEL_FEATURE_DISPLAY | MODEL_FEATURE_MOBILE_APP; // Default: Full Combo
     cfg->config_crc32 = pcu_calc_crc32((const uint8_t*)cfg, offsetof(pcu_config_t, config_crc32));
 }
 
@@ -2856,6 +3148,11 @@ static bool config_load_from_nvs(pcu_config_t *cfg)
 
     uint32_t calc_crc = pcu_calc_crc32((const uint8_t*)cfg, offsetof(pcu_config_t, config_crc32));
     if (calc_crc != cfg->config_crc32) return false;
+
+    /* Backward compatibility fallback for pre-configured units */
+    if (cfg->model_features == 0) {
+        cfg->model_features = MODEL_FEATURE_DISPLAY | MODEL_FEATURE_MOBILE_APP;
+    }
 
     return (cfg->is_configured == 1);
 }
@@ -2904,6 +3201,9 @@ static void send_hrf_packet(uint8_t seq, uint8_t cmd, const uint8_t *payload, ui
 
     uart_write_bytes(SERVICE_UART_NUM, (const char*)frame_buf, offset);
     uart_wait_tx_done(SERVICE_UART_NUM, pdMS_TO_TICKS(100));
+#if CONFIG_IDF_TARGET_ESP32S3
+    usb_serial_jtag_write_bytes(frame_buf, offset, pdMS_TO_TICKS(50));
+#endif
 }
 
 static void send_ack_response(uint8_t seq, uint8_t ref_cmd, uint8_t status_code, uint16_t extra_info)
@@ -2981,15 +3281,27 @@ static void handle_hrf_command(const hrf_header_t *hdr, const uint8_t *payload)
             break;
         }
         case CMD_FACTORY_RESET: {
-            nvs_handle_t handle;
-            if (nvs_open("pcu_store", NVS_READWRITE, &handle) == ESP_OK) {
-                nvs_erase_all(handle);
-                nvs_commit(handle);
-                nvs_close(handle);
-            }
+            ESP_LOGW("PCU_RESET", "Executing full industrial factory reset (NVS + Wi-Fi + Flash Logo)...");
+
+            /* 1. Clear Wi-Fi credentials and restore stack defaults */
+            esp_wifi_disconnect();
+            esp_wifi_stop();
+            esp_wifi_restore();
+
+            /* 2. Erase entire NVS flash partition (pcu_store, wifi, etc.) */
+            nvs_flash_deinit();
+            nvs_flash_erase();
+            nvs_flash_init();
+
+            /* 3. Erase raw OEM logo flash partition at 0x410000 */
+            esp_flash_erase_region(NULL, PCU_LOGO_FLASH_ADDR, 0x10000);
+
+            /* 4. Reset RAM configuration */
             config_set_factory_defaults(&g_pcu_cfg);
+            g_pcu_cfg.is_configured = 0;
+
             send_ack_response(hdr->seq, hdr->cmd, STATUS_OK, 0);
-            vTaskDelay(pdMS_TO_TICKS(400));
+            vTaskDelay(pdMS_TO_TICKS(500));
             esp_restart();
             break;
         }
@@ -3059,6 +3371,148 @@ static void handle_hrf_command(const hrf_header_t *hdr, const uint8_t *payload)
             esp_restart();
             break;
         }
+        case CMD_READ_TELEMETRY: {
+            hrf_telemetry_payload_t t;
+            memset(&t, 0, sizeof(t));
+            _lock_acquire(&lvgl_api_lock);
+            t.grid_volt = inv_data.mainsvolt;
+            t.grid_freq = 50.0f;
+            t.bat_volt  = inv_data.battvolts;
+            t.inv_volt  = inv_data.acout;
+            t.inv_freq  = 50.0f;
+            t.inv_load_pct = inv_data.loaddisp;
+            t.chg_amps  = inv_data.chrampsdisp;
+            t.solar_volt = inv_data.solarvolt;
+            t.solar_amps = inv_data.chrampsdisp;
+            t.error_code = inv_data.error_code;
+            _lock_release(&lvgl_api_lock);
+
+            t.uptime_sec = (uint32_t)(esp_timer_get_time() / 1000000LL);
+            t.wifi_connected = wifi_manager_is_connected() ? 1 : 0;
+            t.iot_connected = aws_iot_client_is_connected() ? 1 : 0;
+            strncpy(t.ip_addr, wifi_manager_get_ip_str(), sizeof(t.ip_addr) - 1);
+
+            send_hrf_packet(hdr->seq, RESP_TELEMETRY_DATA, (const uint8_t*)&t, sizeof(t));
+            break;
+        }
+        case CMD_INJECT_TELEMETRY: {
+            if (hdr->length > 0 && hdr->length < 160 && payload != NULL) {
+                char line_buf[160];
+                memcpy(line_buf, payload, hdr->length);
+                line_buf[hdr->length] = '\0';
+                parse_and_apply_telemetry_line(line_buf);
+                send_ack_response(hdr->seq, hdr->cmd, STATUS_OK, 0);
+            } else {
+                send_ack_response(hdr->seq, hdr->cmd, ERR_PAYLOAD_SIZE, 0);
+            }
+            break;
+        }
+        case CMD_READ_IOT_STATUS: {
+            hrf_iot_status_payload_t st;
+            memset(&st, 0, sizeof(st));
+            st.wifi_state = wifi_manager_is_connected() ? 1 : 0;
+            wifi_ap_record_t ap_info;
+            if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+                st.wifi_rssi = ap_info.rssi;
+            } else {
+                st.wifi_rssi = -100;
+            }
+            st.aws_mqtt_state = aws_iot_client_is_connected() ? 1 : 0;
+            st.ble_state = 1;
+            strncpy(st.ip_addr, wifi_manager_get_ip_str(), sizeof(st.ip_addr) - 1);
+            strncpy(st.thing_id, aws_iot_get_thing_id(), sizeof(st.thing_id) - 1);
+
+            uint8_t mac[6];
+            esp_efuse_mac_get_default(mac);
+            snprintf(st.mac_addr, sizeof(st.mac_addr), "%02X:%02X:%02X:%02X:%02X:%02X",
+                     mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+            st.tls_last_err   = aws_iot_get_last_esp_err();
+            st.tls_stack_err  = (int32_t)wifi_manager_get_last_disconnect_reason();
+            st.tls_cert_flags = (int32_t)esp_get_free_heap_size();
+            st.tls_error_type = aws_iot_get_last_error_type();
+
+            send_hrf_packet(hdr->seq, RESP_IOT_STATUS_DATA, (const uint8_t*)&st, sizeof(st));
+            break;
+        }
+        case CMD_PROVISION_WIFI: {
+            if (hdr->length > 0 && hdr->length < 128 && payload != NULL) {
+                char buf[128];
+                memcpy(buf, payload, hdr->length);
+                buf[hdr->length] = '\0';
+
+                char *ssid = buf;
+                char *pass = NULL;
+                char *sep = strchr(buf, ',');
+                if (sep) {
+                    *sep = '\0';
+                    pass = sep + 1;
+                } else {
+                    size_t s_len = strlen(buf);
+                    if (s_len + 1 < hdr->length) {
+                        pass = buf + s_len + 1;
+                    }
+                }
+
+                /* Strip optional CRLF */
+                if (pass) {
+                    char *eol = strpbrk(pass, "\r\n");
+                    if (eol) *eol = '\0';
+                }
+
+                esp_err_t err = wifi_manager_set_credentials(ssid, pass ? pass : "");
+                if (err == ESP_OK) {
+                    send_ack_response(hdr->seq, hdr->cmd, STATUS_OK, 0);
+                } else {
+                    send_ack_response(hdr->seq, hdr->cmd, ERR_NVS_WRITE, (uint16_t)err);
+                }
+            } else {
+                send_ack_response(hdr->seq, hdr->cmd, ERR_PAYLOAD_SIZE, 0);
+            }
+            break;
+        }
+        case CMD_SCAN_WIFI: {
+            esp_task_wdt_reset();
+            wifi_manager_stop_reconnect_timer();
+            esp_wifi_disconnect();
+            vTaskDelay(pdMS_TO_TICKS(100));
+
+            wifi_scan_config_t scan_cfg = {
+                .ssid = NULL,
+                .bssid = NULL,
+                .channel = 0,
+                .show_hidden = true,
+                .scan_type = WIFI_SCAN_TYPE_ACTIVE,
+                .scan_time.active.min = 100,
+                .scan_time.active.max = 200,
+            };
+            esp_err_t scan_err = esp_wifi_scan_start(&scan_cfg, true);
+            esp_task_wdt_reset();
+
+            uint16_t ap_count = 0;
+            wifi_scan_result_payload_t resp;
+            memset(&resp, 0, sizeof(resp));
+
+            if (scan_err == ESP_OK) {
+                esp_wifi_scan_get_ap_num(&ap_count);
+                if (ap_count > 10) ap_count = 10;
+                if (ap_count > 0) {
+                    wifi_ap_record_t ap_records[10];
+                    memset(ap_records, 0, sizeof(ap_records));
+                    esp_wifi_scan_get_ap_records(&ap_count, ap_records);
+                    resp.count = (uint8_t)ap_count;
+                    for (int i = 0; i < ap_count; i++) {
+                        strncpy(resp.ap[i].ssid, (char*)ap_records[i].ssid, sizeof(resp.ap[i].ssid) - 1);
+                        resp.ap[i].rssi = ap_records[i].rssi;
+                        resp.ap[i].authmode = (uint8_t)ap_records[i].authmode;
+                        resp.ap[i].channel = ap_records[i].primary;
+                    }
+                }
+            }
+            send_hrf_packet(hdr->seq, RESP_WIFI_SCAN_DATA, (const uint8_t*)&resp, sizeof(resp));
+            wifi_manager_start_reconnect_timer();
+            break;
+        }
         default: {
             send_ack_response(hdr->seq, hdr->cmd, ERR_INVALID_CMD, 0);
             break;
@@ -3074,7 +3528,7 @@ static void usb_service_task(void *pvParameters)
     uint8_t rx_buf[64];
     int state = 0;
     hrf_header_t hdr;
-    uint8_t payload[HRF_MAX_PAYLOAD_SIZE];
+    static uint8_t payload[HRF_MAX_PAYLOAD_SIZE];
     size_t rx_idx = 0;
     uint32_t rx_crc = 0;
 
@@ -3083,7 +3537,12 @@ static void usb_service_task(void *pvParameters)
     uint32_t text_line_start_tick = 0;  /* For line timeout guard (C3) */
 
     while (1) {
-        int len = uart_read_bytes(SERVICE_UART_NUM, rx_buf, sizeof(rx_buf), pdMS_TO_TICKS(50));
+        int len = uart_read_bytes(SERVICE_UART_NUM, rx_buf, sizeof(rx_buf), pdMS_TO_TICKS(20));
+#if CONFIG_IDF_TARGET_ESP32S3
+        if (len <= 0) {
+            len = usb_serial_jtag_read_bytes(rx_buf, sizeof(rx_buf), 0);
+        }
+#endif
 
         /* Feed watchdog — proves USB service task is alive */
         esp_task_wdt_reset();
@@ -3213,7 +3672,13 @@ static void usb_service_init(void)
     };
     uart_param_config(SERVICE_UART_NUM, &ucfg);
     uart_driver_install(SERVICE_UART_NUM, 1024, 0, 0, NULL, 0);
+#if CONFIG_IDF_TARGET_ESP32S3
+    uart_set_pin(SERVICE_UART_NUM, GPIO_NUM_43, GPIO_NUM_44, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    usb_serial_jtag_driver_config_t jtag_cfg = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
+    usb_serial_jtag_driver_install(&jtag_cfg);
+#else
     uart_set_pin(SERVICE_UART_NUM, GPIO_NUM_1, GPIO_NUM_3, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+#endif
 }
 
 /* ========================================================================= */
@@ -3252,7 +3717,7 @@ void app_main(void)
         esp_task_wdt_reconfigure(&twdt_config);
     }
 
-    /* Launch USB Service Task on Core 0 with 6144 bytes stack (C2 fix) */
+    /* Launch USB Service Task on Core 0 with 6144 bytes stack */
     xTaskCreatePinnedToCore(usb_service_task, "USB_SVC", 6144, NULL, 3, NULL, 0);
 
     /* 1. Set Initial RTC Clock time (2026-10-01 00:00:00) */
@@ -3262,110 +3727,165 @@ void app_main(void)
     };
     settimeofday(&tv, NULL);
 
-    /* 2. Turn ON LCD Backlight on GPIO 4 (active HIGH) */
-    gpio_reset_pin(PIN_NUM_BK_LIGHT);
-    gpio_set_direction(PIN_NUM_BK_LIGHT, GPIO_MODE_OUTPUT);
-    gpio_set_level(PIN_NUM_BK_LIGHT, 1);
+    bool has_display = (g_pcu_cfg.model_features & MODEL_FEATURE_DISPLAY);
+    bool has_app = (g_pcu_cfg.model_features & MODEL_FEATURE_MOBILE_APP);
 
-    /* Reset DC (GPIO 18) and RST (GPIO 21) */
-    gpio_reset_pin(PIN_NUM_DC);
-    gpio_reset_pin(PIN_NUM_RST);
+    ESP_LOGI("MAIN", "Hardware Configuration: Display=%s, Mobile App/Cloud=%s",
+             has_display ? "ENABLED" : "DISABLED",
+             has_app ? "ENABLED" : "DISABLED");
 
-    /* 3. Initialize SPI Bus with generous DMA transfer size */
-    spi_bus_config_t buscfg = {
-        .sclk_io_num = PIN_NUM_CLK,
-        .mosi_io_num = PIN_NUM_MOSI,
-        .miso_io_num = -1,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .max_transfer_sz = 320 * 80 * sizeof(lv_color16_t),
-    };
-    ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &buscfg, SPI_DMA_CH_AUTO));
+    if (has_display) {
+        /* 2. Turn ON LCD Backlight on GPIO 4 (active HIGH) */
+        gpio_reset_pin(PIN_NUM_BK_LIGHT);
+        gpio_set_direction(PIN_NUM_BK_LIGHT, GPIO_MODE_OUTPUT);
+        gpio_set_level(PIN_NUM_BK_LIGHT, 1);
 
-    /* 4. Install Panel IO at 40 MHz clock */
-    esp_lcd_panel_io_handle_t io_handle = NULL;
-    esp_lcd_panel_io_spi_config_t io_config = {
-        .dc_gpio_num = PIN_NUM_DC,
-        .cs_gpio_num = PIN_NUM_CS,
-        .pclk_hz = LCD_PIXEL_CLOCK_HZ,
-        .lcd_cmd_bits = 8,
-        .lcd_param_bits = 8,
-        .spi_mode = 0,
-        .trans_queue_depth = 10,
-    };
-    ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi(LCD_HOST, &io_config, &io_handle));
+        /* Reset DC (GPIO 18) and RST (GPIO 21) */
+        gpio_reset_pin(PIN_NUM_DC);
+        gpio_reset_pin(PIN_NUM_RST);
 
-    /* 5. Install ILI9341 Panel Driver */
-    esp_lcd_panel_handle_t panel_handle = NULL;
-    esp_lcd_panel_dev_config_t panel_config = {
-        .reset_gpio_num = PIN_NUM_RST,
-        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR,
-        .bits_per_pixel = 16,
-    };
-    ESP_ERROR_CHECK(esp_lcd_new_panel_ili9341(io_handle, &panel_config, &panel_handle));
-    ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
-    ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
-    ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
+        /* 3. Initialize SPI Bus with generous DMA transfer size */
+        spi_bus_config_t buscfg = {
+            .sclk_io_num = PIN_NUM_CLK,
+            .mosi_io_num = PIN_NUM_MOSI,
+            .miso_io_num = -1,
+            .quadwp_io_num = -1,
+            .quadhd_io_num = -1,
+            .max_transfer_sz = 320 * 40 * sizeof(lv_color16_t),
+        };
+        ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &buscfg, SPI_DMA_CH_AUTO));
 
-    /* 6. Initialize LVGL v9 */
-    lv_init();
+        /* 4. Install Panel IO at 40 MHz clock */
+        esp_lcd_panel_io_handle_t io_handle = NULL;
+        esp_lcd_panel_io_spi_config_t io_config = {
+            .dc_gpio_num = PIN_NUM_DC,
+            .cs_gpio_num = PIN_NUM_CS,
+            .pclk_hz = LCD_PIXEL_CLOCK_HZ,
+            .lcd_cmd_bits = 8,
+            .lcd_param_bits = 8,
+            .spi_mode = 0,
+            .trans_queue_depth = 10,
+        };
+        ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi(LCD_HOST, &io_config, &io_handle));
 
-    /* Create display (240x320 native) with Landscape 90-degree rotation */
-    lv_display_t *display = lv_display_create(LCD_H_RES, LCD_V_RES);
-    lv_display_set_rotation(display, LV_DISPLAY_ROTATION_90);
+        /* 5. Install ILI9341 Panel Driver */
+        esp_lcd_panel_handle_t panel_handle = NULL;
+        esp_lcd_panel_dev_config_t panel_config = {
+            .reset_gpio_num = PIN_NUM_RST,
+            .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR,
+            .bits_per_pixel = 16,
+        };
+        ESP_ERROR_CHECK(esp_lcd_new_panel_ili9341(io_handle, &panel_config, &panel_handle));
+        ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
+        ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
+        ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
 
-    /* Allocate dual DMA draw buffers */
-    size_t draw_buffer_sz = 320 * LVGL_DRAW_BUF_LINES * sizeof(lv_color16_t);
-    void *buf1 = spi_bus_dma_memory_alloc(LCD_HOST, draw_buffer_sz, 0);
-    assert(buf1 != NULL);
-    void *buf2 = spi_bus_dma_memory_alloc(LCD_HOST, draw_buffer_sz, 0);
-    assert(buf2 != NULL);
+        /* 6. Initialize LVGL v9 */
+        lv_init();
 
-    lv_display_set_buffers(display, buf1, buf2, draw_buffer_sz, LV_DISPLAY_RENDER_MODE_PARTIAL);
-    lv_display_set_user_data(display, panel_handle);
-    update_panel_rotation(display);
-    lv_display_set_color_format(display, LV_COLOR_FORMAT_RGB565);
-    lv_display_set_flush_cb(display, lvgl_flush_cb);
+        /* Create display (240x320 native) with Landscape 90-degree rotation */
+        lv_display_t *display = lv_display_create(LCD_H_RES, LCD_V_RES);
+        lv_display_set_rotation(display, LV_DISPLAY_ROTATION_90);
 
-    /* 7. Setup LVGL Tick Timer */
-    const esp_timer_create_args_t lvgl_tick_timer_args = {
-        .callback = &increase_lvgl_tick,
-        .name = "lvgl_tick"
-    };
-    esp_timer_handle_t lvgl_tick_timer = NULL;
-    ESP_ERROR_CHECK(esp_timer_create(&lvgl_tick_timer_args, &lvgl_tick_timer));
-    ESP_ERROR_CHECK(esp_timer_start_periodic(lvgl_tick_timer, LVGL_TICK_PERIOD_MS * 1000));
+        /* Allocate dual DMA draw buffers */
+        size_t draw_buffer_sz = 320 * LVGL_DRAW_BUF_LINES * sizeof(lv_color16_t);
+        void *buf1 = spi_bus_dma_memory_alloc(LCD_HOST, draw_buffer_sz, 0);
+        assert(buf1 != NULL);
+        void *buf2 = spi_bus_dma_memory_alloc(LCD_HOST, draw_buffer_sz, 0);
+        assert(buf2 != NULL);
 
-    /* 8. Register IO Done Callback for asynchronous DMA flush */
-    const esp_lcd_panel_io_callbacks_t cbs = {
-        .on_color_trans_done = notify_lvgl_flush_ready,
-    };
-    ESP_ERROR_CHECK(esp_lcd_panel_io_register_event_callbacks(io_handle, &cbs, display));
+        lv_display_set_buffers(display, buf1, buf2, draw_buffer_sz, LV_DISPLAY_RENDER_MODE_PARTIAL);
+        lv_display_set_user_data(display, panel_handle);
+        update_panel_rotation(display);
+        lv_display_set_color_format(display, LV_COLOR_FORMAT_RGB565);
+        lv_display_set_flush_cb(display, lvgl_flush_cb);
 
-    /* 9. Build UI */
-    _lock_acquire(&lvgl_api_lock);
-    init_custom_logo();
-    if (!configured) {
-        lv_obj_t *unconf_scr = lv_display_get_screen_active(display);
-        build_unconfigured_screen(unconf_scr);
-    } else {
-        g_main_screen_obj = lv_obj_create(NULL);
-        build_dashboard_shell(g_main_screen_obj);
+        /* 7. Setup LVGL Tick Timer */
+        const esp_timer_create_args_t lvgl_tick_timer_args = {
+            .callback = &increase_lvgl_tick,
+            .name = "lvgl_tick"
+        };
+        esp_timer_handle_t lvgl_tick_timer = NULL;
+        ESP_ERROR_CHECK(esp_timer_create(&lvgl_tick_timer_args, &lvgl_tick_timer));
+        ESP_ERROR_CHECK(esp_timer_start_periodic(lvgl_tick_timer, LVGL_TICK_PERIOD_MS * 1000));
 
-        g_error_scr = lv_obj_create(NULL);
-        build_error_screen(g_error_scr);
+        /* 8. Register IO Done Callback for asynchronous DMA flush */
+        const esp_lcd_panel_io_callbacks_t cbs = {
+            .on_color_trans_done = notify_lvgl_flush_ready,
+        };
+        ESP_ERROR_CHECK(esp_lcd_panel_io_register_event_callbacks(io_handle, &cbs, display));
 
-        lv_obj_t *boot_scr = lv_obj_create(NULL);
-        build_boot_screen(boot_scr, g_main_screen_obj);
+        /* 9. Build UI */
+        _lock_acquire(&lvgl_api_lock);
+        init_custom_logo();
+        if (!configured) {
+            lv_obj_t *unconf_scr = lv_display_get_screen_active(display);
+            build_unconfigured_screen(unconf_scr);
+        } else {
+            g_main_screen_obj = lv_obj_create(NULL);
+            build_dashboard_shell(g_main_screen_obj);
 
-        lv_screen_load(boot_scr);
+            g_error_scr = lv_obj_create(NULL);
+            build_error_screen(g_error_scr);
+
+            lv_obj_t *boot_scr = lv_obj_create(NULL);
+            build_boot_screen(boot_scr, g_main_screen_obj);
+
+            lv_screen_load(boot_scr);
+        }
+        _lock_release(&lvgl_api_lock);
+
+        /* 10. Start LVGL Port Task */
+        xTaskCreatePinnedToCore(lvgl_port_task, "LVGL", 8192, NULL, 2, NULL, 1);
     }
-    _lock_release(&lvgl_api_lock);
 
-    /* 10. Start Background Tasks */
-    xTaskCreatePinnedToCore(lvgl_port_task, "LVGL", 8192, NULL, 2, NULL, 1);
+    /* Start Telemetry Inverter UART Task */
     if (configured) {
         xTaskCreatePinnedToCore(inverter_uart_task, "INV_UART", 4096, NULL, 3, NULL, 0);
     }
+
+    /* 11. Initialize Industrial Wi-Fi & BLE Provisioning (Core 0, non-blocking) if Model has App */
+    if (has_app) {
+        wifi_manager_init();
+        ble_provisioning_init();
+    }
 }
+
+/* Thread-safe telemetry snapshot for AWS IoT Core publisher */
+void get_inverter_data_snapshot(inverter_telemetry_snapshot_t *snap)
+{
+    if (!snap) return;
+    _lock_acquire(&lvgl_api_lock);
+    snap->mainsvolt   = inv_data.mainsvolt;
+    snap->solarvolt   = inv_data.solarvolt;
+    snap->battvolts   = inv_data.battvolts;
+    snap->acout       = inv_data.acout;
+    snap->loaddisp    = inv_data.loaddisp;
+    snap->chrampsdisp = inv_data.chrampsdisp;
+    snap->dischdisp   = inv_data.dischdisp;
+    snap->dcboost     = inv_data.dcboost;
+    snap->upsheat     = inv_data.upsheat;
+    snap->error_code  = inv_data.error_code;
+    _lock_release(&lvgl_api_lock);
+}
+
+void get_pcu_vendor_snapshot(pcu_vendor_snapshot_t *snap)
+{
+    if (!snap) return;
+    _lock_acquire(&lvgl_api_lock);
+    strncpy(snap->brand_title, g_pcu_cfg.brand_title, sizeof(snap->brand_title) - 1);
+    snap->brand_title[sizeof(snap->brand_title) - 1] = '\0';
+    strncpy(snap->model_name, g_pcu_cfg.model_name, sizeof(snap->model_name) - 1);
+    snap->model_name[sizeof(snap->model_name) - 1] = '\0';
+    strncpy(snap->serial_number, g_pcu_cfg.serial_number, sizeof(snap->serial_number) - 1);
+    snap->serial_number[sizeof(snap->serial_number) - 1] = '\0';
+    strncpy(snap->hardware_version, g_pcu_cfg.hardware_version, sizeof(snap->hardware_version) - 1);
+    snap->hardware_version[sizeof(snap->hardware_version) - 1] = '\0';
+    strncpy(snap->vendor_contact, g_pcu_cfg.vendor_contact, sizeof(snap->vendor_contact) - 1);
+    snap->vendor_contact[sizeof(snap->vendor_contact) - 1] = '\0';
+    strncpy(snap->vendor_website, g_pcu_cfg.vendor_website, sizeof(snap->vendor_website) - 1);
+    snap->vendor_website[sizeof(snap->vendor_website) - 1] = '\0';
+    _lock_release(&lvgl_api_lock);
+}
+
 

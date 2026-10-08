@@ -68,6 +68,8 @@ sIKWsND+n2baMuNRP4YsidGtQRODK9IBbw==
   final _statusController = StreamController<AwsConnectionStatus>.broadcast();
   final _telemetryController = StreamController<Map<String, dynamic>>.broadcast();
   final _alertController = StreamController<Map<String, dynamic>>.broadcast();
+  Timer? _presenceTimer;
+  Timer? _retryTimer;
 
   Stream<AwsConnectionStatus> get statusStream => _statusController.stream;
   Stream<Map<String, dynamic>> get telemetryStream => _telemetryController.stream;
@@ -76,6 +78,16 @@ sIKWsND+n2baMuNRP4YsidGtQRODK9IBbw==
 
   String? _lastReceivedThing;
   String? get lastReceivedThing => _lastReceivedThing;
+
+  void _scheduleRetry() {
+    _retryTimer?.cancel();
+    _retryTimer = Timer(const Duration(seconds: 4), () {
+      if (_status != AwsConnectionStatus.connected && _status != AwsConnectionStatus.connecting) {
+        debugPrint('🔄 [AwsIotService] Retrying connection to AWS IoT Core...');
+        connect();
+      }
+    });
+  }
 
   Future<void> connect() async {
     if (_status == AwsConnectionStatus.connecting || _status == AwsConnectionStatus.connected) {
@@ -106,20 +118,29 @@ sIKWsND+n2baMuNRP4YsidGtQRODK9IBbw==
 
       client.onConnected = () {
         debugPrint('✅ [AwsIotService] Connected to AWS IoT Core MQTT broker');
+        _retryTimer?.cancel();
+        _retryTimer = null;
         _setStatus(AwsConnectionStatus.connected);
+        _startPresenceHeartbeat();
 
         // Subscribe to all SunGridNova devices telemetry & alerts
         client.subscribe('solar/+/telemetry', MqttQos.atLeastOnce);
+        client.subscribe('solar/#', MqttQos.atLeastOnce);
         client.subscribe('solar/+/alerts', MqttQos.atLeastOnce);
+        client.subscribe('esp32/test', MqttQos.atLeastOnce);
+        client.subscribe('esp32/#', MqttQos.atLeastOnce);
       };
 
       client.onDisconnected = () {
-        debugPrint('⚠️ [AwsIotService] Disconnected from AWS IoT Core');
+        debugPrint('⚠️ [AwsIotService] Disconnected from Server');
+        _stopPresenceHeartbeat();
         _setStatus(AwsConnectionStatus.disconnected);
+        _scheduleRetry();
       };
 
       client.onAutoReconnect = () {
-        debugPrint('🔄 [AwsIotService] Auto-reconnecting to AWS IoT Core...');
+        debugPrint('🔄 [AwsIotService] Auto-reconnecting to Server...');
+        _stopPresenceHeartbeat();
         _setStatus(AwsConnectionStatus.connecting);
       };
 
@@ -128,7 +149,12 @@ sIKWsND+n2baMuNRP4YsidGtQRODK9IBbw==
           .startClean();
       client.connectionMessage = connMessage;
 
-      await client.connect();
+      final status = await client.connect();
+      if (status?.state != MqttConnectionState.connected) {
+        debugPrint('⚠️ [AwsIotService] Connect returned status: ${status?.state}');
+        _setStatus(AwsConnectionStatus.failed);
+        _scheduleRetry();
+      }
 
       // Listen for incoming messages
       client.updates?.listen((List<MqttReceivedMessage<MqttMessage>> messages) {
@@ -136,11 +162,12 @@ sIKWsND+n2baMuNRP4YsidGtQRODK9IBbw==
           final recMessage = msg.payload as MqttPublishMessage;
           final payloadStr = MqttPublishPayload.bytesToStringAsString(recMessage.payload.message);
           final topic = msg.topic;
+          debugPrint('📥 [Server Sync] Received on topic $topic: $payloadStr');
 
           try {
             final data = jsonDecode(payloadStr) as Map<String, dynamic>;
-            if (topic.endsWith('/telemetry')) {
-              _lastReceivedThing = data['thing']?.toString();
+            if (topic.endsWith('/telemetry') || topic.contains('telemetry') || topic == 'esp32/test') {
+              _lastReceivedThing = data['thing']?.toString() ?? 'SunGridNova-49F8';
               _telemetryController.add(data);
             } else if (topic.endsWith('/alerts')) {
               _alertController.add(data);
@@ -153,10 +180,42 @@ sIKWsND+n2baMuNRP4YsidGtQRODK9IBbw==
     } catch (e) {
       debugPrint('❌ [AwsIotService] Connection failed: $e');
       _setStatus(AwsConnectionStatus.failed);
+      _scheduleRetry();
     }
   }
 
+  void _publishPresence() {
+    if (_client == null || _status != AwsConnectionStatus.connected) return;
+    try {
+      final builder = MqttClientPayloadBuilder();
+      builder.addString(jsonEncode({'active': 1, 'ts': DateTime.now().millisecondsSinceEpoch}));
+      _client!.publishMessage('solar/presence', MqttQos.atLeastOnce, builder.payload!);
+      if (_lastReceivedThing != null) {
+        _client!.publishMessage('solar/$_lastReceivedThing/presence', MqttQos.atLeastOnce, builder.payload!);
+      }
+      debugPrint('📡 [AwsIotService] Sent presence heartbeat to inverter');
+    } catch (e) {
+      debugPrint('Error publishing presence: $e');
+    }
+  }
+
+  void _startPresenceHeartbeat() {
+    _stopPresenceHeartbeat();
+    _publishPresence();
+    _presenceTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      _publishPresence();
+    });
+  }
+
+  void _stopPresenceHeartbeat() {
+    _presenceTimer?.cancel();
+    _presenceTimer = null;
+  }
+
   void disconnect() {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _stopPresenceHeartbeat();
     _client?.disconnect();
     _setStatus(AwsConnectionStatus.disconnected);
   }
@@ -167,6 +226,9 @@ sIKWsND+n2baMuNRP4YsidGtQRODK9IBbw==
   }
 
   void dispose() {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _stopPresenceHeartbeat();
     _client?.disconnect();
     _statusController.close();
     _telemetryController.close();

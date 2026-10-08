@@ -1,0 +1,21 @@
+# ==============================================================================
+# Solar Display Manager - OEM License Configuration File
+# 
+# Controls access permissions for engineering & staging tabs.
+# Valid boolean values: ENABLE, DISABLE, 1, 0, YES, NO, TRUE, FALSE
+# ==============================================================================
+
+# Authorized Licensee / Manufacturing Facility
+LICENSEE=Solar Tech OEM Facility
+
+# Display Customization Tab (Branding, Model, Serial, Theme, Custom Logo Flashing)
+FEATURE_DISPLAY=ENABLE
+
+# Mobile App & Cloud / IoT Tab (Model Feature Bits, Direct Wi-Fi Provisioning, Cloud Diagnostics)
+FEATURE_APP=ENABLE
+
+# License Expiry Date (YYYY-MM-DD or NEVER)
+EXPIRY_DATE=2030-12-31
+
+# Security Token / Checksum (Reserved for Cryptographic Verification)
+SIGNATURE_TOKEN=SDM-PRO-OEM-2026-X8849-VALID

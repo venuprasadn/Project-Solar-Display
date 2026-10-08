@@ -28,9 +28,24 @@ public:
     bool Reboot();
     bool WriteLogo(const uint8_t* logoData, size_t totalSize);
     bool ClearLogo();
+    bool ProvisionWifi(const char* ssid, const char* password);
+    bool ScanWifi(wifi_scan_result_payload_t* outScan);
+    bool ReadIotStatus(hrf_iot_status_payload_t* outStatus);
 
-    // Port Enumeration
+    struct PortInfo {
+        CString  portName;
+        CString  friendlyName;
+        CString  hardwareId;
+        uint16_t vid;
+        uint16_t pid;
+        bool     isEspDevice;
+        int      rank; // 1 = Espressif Native USB, 2 = Espressif USB, 3 = CH343/CH340, 4 = CP210x, 5 = FTDI, 99 = Non-ESP
+    };
+
+    // Port Enumeration & Auto-Discovery
     static std::vector<CString> EnumeratePorts();
+    static std::vector<PortInfo> EnumerateDetailedPorts();
+    static CString AutoDetectEspPort();
 
     CString GetLastErrorMsg() const { return m_lastError; }
 
@@ -42,3 +57,4 @@ private:
     bool WriteExact(const uint8_t* buffer, DWORD bytesToWrite);
     bool ReadExact(uint8_t* buffer, DWORD bytesToRead, DWORD timeoutMs);
 };
+

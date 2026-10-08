@@ -24,9 +24,13 @@
 #define CMD_WRITE_LOGO_CHUNK    0x08
 #define CMD_COMMIT_LOGO         0x09
 #define CMD_CLEAR_LOGO          0x0A
+#define CMD_INJECT_TELEMETRY    0x0B
+#define CMD_READ_IOT_STATUS     0x0C
+#define CMD_PROVISION_WIFI      0x0D
+#define CMD_SCAN_WIFI           0x0E
 
 #define PCU_LOGO_MAGIC          0x474F4C50  // 'PLOG'
-#define PCU_LOGO_FLASH_ADDR     0x190000
+#define PCU_LOGO_FLASH_ADDR     0x410000
 
 typedef struct {
     uint32_t magic;         // PCU_LOGO_MAGIC
@@ -49,6 +53,8 @@ typedef struct {
 #define RESP_NACK               0x81
 #define RESP_CONFIG_DATA        0x82
 #define RESP_TELEMETRY_DATA     0x83
+#define RESP_IOT_STATUS_DATA    0x84
+#define RESP_WIFI_SCAN_DATA     0x85
 
 /* Status / Error Codes */
 #define STATUS_OK               0x00
@@ -82,6 +88,53 @@ typedef struct {
     uint32_t uptime_sec;
     char     chip_model[16];     // "ESP32-D0WDQ6"
 } hrf_ping_resp_t;
+
+/* Telemetry Response Payload (for CMD_READ_TELEMETRY) */
+typedef struct {
+    float    grid_volt;
+    float    grid_freq;
+    float    bat_volt;
+    float    inv_volt;
+    float    inv_freq;
+    float    inv_load_pct;
+    float    chg_amps;
+    float    solar_volt;
+    float    solar_amps;
+    int32_t  error_code;
+    uint32_t uptime_sec;
+    uint8_t  wifi_connected;
+    uint8_t  iot_connected;
+    char     ip_addr[16];
+} hrf_telemetry_payload_t;
+
+/* Cloud & IoT Status Response Payload (for CMD_READ_IOT_STATUS) */
+typedef struct {
+    uint8_t  wifi_state;        // 1 = Connected, 0 = Disconnected
+    int8_t   wifi_rssi;
+    uint8_t  aws_mqtt_state;    // 1 = Connected, 0 = Disconnected
+    uint8_t  ble_state;         // 1 = Active
+    char     ip_addr[16];
+    char     thing_id[32];
+    char     mac_addr[18];
+    int32_t  tls_last_err;
+    int32_t  tls_stack_err;
+    int32_t  tls_cert_flags;
+    int32_t  tls_error_type;
+} hrf_iot_status_payload_t;
+
+/* Wi-Fi Scan AP Record (36 bytes each) */
+typedef struct {
+    char     ssid[33];
+    int8_t   rssi;
+    uint8_t  authmode;
+    uint8_t  channel;
+} wifi_scan_ap_record_t;
+
+/* Wi-Fi Scan Response Payload (for CMD_SCAN_WIFI) */
+typedef struct {
+    uint8_t count;
+    wifi_scan_ap_record_t ap[10];
+} wifi_scan_result_payload_t;
 
 /* ACK / NACK Payload */
 typedef struct {
@@ -117,9 +170,20 @@ typedef struct {
     uint8_t  carousel_interval_sec; // 3 to 30 seconds (default 5s)
     uint8_t  backlight_brightness;  // 10 to 100%
 
+/* Model Hardware Feature Configuration Flags (stored in pcu_config_t) */
+#define MODEL_FEATURE_DISPLAY     (1 << 0)  // Bit 0: 1 = With Display (LCD/LVGL active), 0 = Without Display
+#define MODEL_FEATURE_MOBILE_APP  (1 << 1)  // Bit 1: 1 = With Mobile App (Wi-Fi & Cloud active), 0 = Without App
+
+/* Convenience Model Definitions for MFC Configuration Tool */
+#define MODEL_TYPE_STANDALONE     0x00      // Headless, No Wi-Fi/App
+#define MODEL_TYPE_DISPLAY_ONLY   0x01      // Display Only (No Wi-Fi/App)
+#define MODEL_TYPE_APP_ONLY       0x02      // IoT Gateway (No Display, With App/Wi-Fi)
+#define MODEL_TYPE_FULL_COMBO     0x03      // Full Features (With Display & With App/Wi-Fi)
+
     /* Field Telemetry Port (UART2) Configuration */
     uint32_t telemetry_baudrate;    // 9600, 19200, 38400, 115200 (default 9600)
-    uint8_t  reserved_align[3];
+    uint8_t  model_features;        // Bit 0: Display, Bit 1: App/Cloud (0=None, 1=Display, 2=App, 3=Both)
+    uint8_t  reserved_align[2];     // Pad to 32-bit alignment (keeps sizeof(pcu_config_t) 100% unchanged)
 
     /* CRC Checksum over all prior bytes in struct */
     uint32_t config_crc32;

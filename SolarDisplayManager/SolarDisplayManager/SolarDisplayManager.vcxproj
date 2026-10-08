@@ -192,6 +192,11 @@
     <ClInclude Include="pcu_protocol.h" />
     <ClInclude Include="SerialComm.h" />
     <ClInclude Include="EspFlasher.h" />
+    <ClInclude Include="LicenseManager.h" />
+    <ClInclude Include="TabDisplayDlg.h" />
+    <ClInclude Include="TabAppDlg.h" />
+    <ClInclude Include="OEMPayload.h" />
+    <ClInclude Include="OEMHeaderCtrl.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -204,9 +209,15 @@
     <ClCompile Include="SolarDisplayManagerDlg.cpp" />
     <ClCompile Include="SerialComm.cpp" />
     <ClCompile Include="EspFlasher.cpp" />
+    <ClCompile Include="LicenseManager.cpp" />
+    <ClCompile Include="TabDisplayDlg.cpp" />
+    <ClCompile Include="TabAppDlg.cpp" />
+    <ClCompile Include="OEMPayload.cpp" />
+    <ClCompile Include="OEMHeaderCtrl.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="SolarDisplayManager.rc" />
+
   </ItemGroup>
   <ItemGroup>
     <None Include="res\SolarDisplayManager.rc2" />

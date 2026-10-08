@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <afxstr.h>
 #include <functional>
+#include <vector>
 
 typedef std::function<void(int progressPct, const CString& statusLine)> FlasherProgressCallback;
 
@@ -12,19 +13,13 @@ public:
     CEspFlasher();
     ~CEspFlasher();
 
-    bool FlashFirmware(
+    bool FlashMonolithicFirmware(
         const CString& portName,
         DWORD baudRate,
-        const CString& bootloaderPath,
-        const CString& partitionTablePath,
-        const CString& appBinPath,
-        const CString& logoBinPath,
         FlasherProgressCallback progressCallback,
         CString& outError
     );
 
-    static CString FindDefaultEsptoolPath();
-    static CString FindDefaultAppBinPath();
-    static CString FindDefaultBootloaderPath();
-    static CString FindDefaultPartitionPath();
+    static bool ExtractResourceToFile(UINT resId, const CString& outFilePath);
+    static bool ConvertPngToLogoBin(const uint8_t* pPngData, size_t pngLen, const CString& outBinPath);
 };
