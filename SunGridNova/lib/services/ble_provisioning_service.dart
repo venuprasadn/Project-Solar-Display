@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 class BleProvisioningService {
@@ -64,8 +65,25 @@ class BleProvisioningService {
   Future<void> startScan() async {
     _statusMessageController.add('Scanning for nearby SunGridNova inverters...');
 
+    try {
+      if (await FlutterBluePlus.isSupported == false) {
+        _statusMessageController.add('Bluetooth is not supported on this device.');
+        return;
+      }
+      if (FlutterBluePlus.adapterStateNow != BluetoothAdapterState.on) {
+        _statusMessageController.add('⚠️ Bluetooth is OFF. Please turn ON Bluetooth & Location in phone settings.');
+        try {
+          await FlutterBluePlus.turnOn();
+        } catch (_) {}
+      }
+    } catch (e) {
+      debugPrint('Adapter check error: $e');
+    }
+
     // Stop any existing scan
-    await FlutterBluePlus.stopScan();
+    try {
+      await FlutterBluePlus.stopScan();
+    } catch (_) {}
 
     _scanSub?.cancel();
     _scanSub = FlutterBluePlus.scanResults.listen((results) {
@@ -73,7 +91,8 @@ class BleProvisioningService {
         final advName = r.advertisementData.advName;
         final platName = r.device.platformName;
         final name = advName.isNotEmpty ? advName : platName;
-        if (name.startsWith('SunGridNova')) {
+        final bool hasMatchingUuid = r.advertisementData.serviceUuids.contains(serviceUuid);
+        if (name.startsWith('SunGridNova') || hasMatchingUuid || name.toLowerCase().contains('sungrid')) {
           _deviceFoundController.add(r.device);
         }
       }
@@ -82,6 +101,7 @@ class BleProvisioningService {
     try {
       await FlutterBluePlus.startScan(
         timeout: const Duration(seconds: 15),
+        androidUsesFineLocation: true,
       );
     } catch (e) {
       _statusMessageController.add('Scan error: $e');
