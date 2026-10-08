@@ -1,8 +1,8 @@
 /*
- * Auto-Generated Industrial AWS IoT Core mTLS Certificates & Key
- * Target Device: SunGridNova-FB04
- * Generation Timestamp: 2026-10-08T18:01:02.504137+00:00
- * Security Standard: ECDSA SECP256R1 / SHA256
+ * Genuine Amazon-Signed AWS IoT Core mTLS Certificates & Private Key
+ * Issuer: Amazon Web Services (Amazon.com Inc.)
+ * Endpoint: a15qebuvm1g118-ats.iot.ap-southeast-2.amazonaws.com
+ * Serial: 0x4cafa97f2f629b0c9d209741cb9e1cfb56f10b24
  */
 
 #pragma once
@@ -33,30 +33,57 @@ static const char *AWS_ROOT_CA_CERT =
 "rqXRfboQnoZsG4q5WTP468SQvvG5\n"
 "-----END CERTIFICATE-----\n";
 
-/* Dynamic Client Device X.509 Certificate */
+/* Amazon Web Services Signed Device Certificate */
 static const char *AWS_CLIENT_CERT =
 "-----BEGIN CERTIFICATE-----\n"
-"MIICWDCCAf+gAwIBAgIUdiICo3hm8Xnaz873l5ENAKIerDwwCgYIKoZIzj0EAwIw\n"
-"gaExCzAJBgNVBAYTAklOMRIwEAYDVQQIDAlLYXJuYXRha2ExEjAQBgNVBAcMCUJl\n"
-"bmdhbHVydTEjMCEGA1UECgwaU3VuR3JpZE5vdmEgRW5lcmd5IFN5c3RlbXMxKjAo\n"
-"BgNVBAsMIUluZHVzdHJpYWwgSW52ZXJ0ZXIgU2VjdXJpdHkgQ29yZTEZMBcGA1UE\n"
-"AwwQU3VuR3JpZE5vdmEtRkIwNDAeFw0yNjAxMDEwMDAwMDBaFw00MDAxMDEwMDAw\n"
-"MDBaMIGhMQswCQYDVQQGEwJJTjESMBAGA1UECAwJS2FybmF0YWthMRIwEAYDVQQH\n"
-"DAlCZW5nYWx1cnUxIzAhBgNVBAoMGlN1bkdyaWROb3ZhIEVuZXJneSBTeXN0ZW1z\n"
-"MSowKAYDVQQLDCFJbmR1c3RyaWFsIEludmVydGVyIFNlY3VyaXR5IENvcmUxGTAX\n"
-"BgNVBAMMEFN1bkdyaWROb3ZhLUZCMDQwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\n"
-"AASdlaQZOtA4IOkNyTQQCUOHrgDt4nN7NZfmZR/EVyOLxaIeJ4sERXvuaYmepoUb\n"
-"VQ7hrtTfY4MoAX3LHQqKywzMoxMwETAPBgNVHRMBAf8EBTADAQH/MAoGCCqGSM49\n"
-"BAMCA0cAMEQCIFhp9BCpxTHlboQzOlY0deQlwGN0wHhrECHNIKy2frmbAiAJzKxP\n"
-"E+NHjluZXU9KE1UNXMAYEOgIlhrWLrxe+NIu1w==\n"
+"MIIDWTCCAkGgAwIBAgIUTK+pfy9imwydIJdBy54c+1bxCyQwDQYJKoZIhvcNAQEL\n"
+"BQAwTTFLMEkGA1UECwxCQW1hem9uIFdlYiBTZXJ2aWNlcyBPPUFtYXpvbi5jb20g\n"
+"SW5jLiBMPVNlYXR0bGUgU1Q9V2FzaGluZ3RvbiBDPVVTMB4XDTI1MDcxMDE4MzI1\n"
+"OFoXDTQ5MTIzMTIzNTk1OVowHjEcMBoGA1UEAwwTQVdTIElvVCBDZXJ0aWZpY2F0\n"
+"ZTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAPPtxdolwBSC49w7avh8\n"
+"OaCwJtUVmyK+uKnfgiVV/wqXNIBTYMeZE21GGl5s0msVIoCaWUWKp+BMs5D4uQq3\n"
+"BH3Wp6U3LHW22CbS1V8xVElL8frod5ceYy71BFLaHrtGLqn2DHmmqmiHbOhR41fU\n"
+"8B7XeHLPJUJ0f3kg3+mboxD8CmnIpJb7OTzFvhSTyn7M2+QiRHQkWVDrXbDf/pqD\n"
+"AumbTdKxIVSPOhm0owwQGZvBainso7kfg71Oqjaa+u6TaAQauuumCCqU+lFAq6pY\n"
+"FyDI7kpG9gi8iwPz+/uKwxVNSEo9N38HqHVKK3NzZOoNdzWbgU8mHRKAsunFUvwB\n"
+"VFkCAwEAAaNgMF4wHwYDVR0jBBgwFoAUDZbBuzdO/6B36spr6OtWlnghzYowHQYD\n"
+"VR0OBBYEFJs0GXQ/10vIzNQKvZ6iyJICVpQnMAwGA1UdEwEB/wQCMAAwDgYDVR0P\n"
+"AQH/BAQDAgeAMA0GCSqGSIb3DQEBCwUAA4IBAQDgHVFLqgPUlF+XDPayDRDXNyy1\n"
+"UwEFscWbKfKOcJLKRUJrvVJlol9Uw4Zlhm/wdjjfeSN6lPjWhgeJfA3puQDhjtFG\n"
+"Vb617I6nD5gmEgVe7/RrdcgkVRhcbzLuMlCj9Ib4xBnQhgB6FxC/uHaDNnsGl5kV\n"
+"tlm5UtDIkDzvz24qncr71hCX0TfNtRD+ftf0m+QKEE/I3I7Qi5pIS8jSk8YhwGRO\n"
+"cgloKODQ5QY5XHRPkGeeEDkOcua+LlA6Cm++KWNiI7HM3QBCl77qWwyHLlKXwjck\n"
+"9s2PUeko7TsZ/M4WdxlV2G18HRQfKWUKI2QV4sy9AujP4tz+8WSeJQkjH6/w\n"
 "-----END CERTIFICATE-----\n";
 
-/* Dynamic Client Device SECP256R1 EC Private Key */
+/* Device RSA Private Key */
 static const char *AWS_CLIENT_KEY =
-"-----BEGIN EC PRIVATE KEY-----\n"
-"MHcCAQEEIJ8j82uwXuMdoVT6rwyR1HbcVE9tvTfG7mUIdUaTS5+AoAoGCCqGSM49\n"
-"AwEHoUQDQgAEnZWkGTrQOCDpDck0EAlDh64A7eJzezWX5mUfxFcji8WiHieLBEV7\n"
-"7mmJnqaFG1UO4a7U32ODKAF9yx0KissMzA==\n"
-"-----END EC PRIVATE KEY-----\n";
+"-----BEGIN RSA PRIVATE KEY-----\n"
+"MIIEpQIBAAKCAQEA8+3F2iXAFILj3Dtq+Hw5oLAm1RWbIr64qd+CJVX/Cpc0gFNg\n"
+"x5kTbUYaXmzSaxUigJpZRYqn4EyzkPi5CrcEfdanpTcsdbbYJtLVXzFUSUvx+uh3\n"
+"lx5jLvUEUtoeu0YuqfYMeaaqaIds6FHjV9TwHtd4cs8lQnR/eSDf6ZujEPwKacik\n"
+"lvs5PMW+FJPKfszb5CJEdCRZUOtdsN/+moMC6ZtN0rEhVI86GbSjDBAZm8FqKeyj\n"
+"uR+DvU6qNpr67pNoBBq666YIKpT6UUCrqlgXIMjuSkb2CLyLA/P7+4rDFU1ISj03\n"
+"fweodUorc3Nk6g13NZuBTyYdEoCy6cVS/AFUWQIDAQABAoIBAQDZr1ogIgxWwbCD\n"
+"e+sssf/jrRAanVuDGF1IDBTjKOmgE+xgkQgPWEaEAEnL9qWZtpTB2/zLGMBUZV7i\n"
+"g3TvYQD7JDMcOC7PJkuj6gdNGoKznrjmR8th61ZsM3CWV92RF0LRnqjnb5soCaNh\n"
+"eKLAYWGgxH3TR5VixwBzoqjwm1pc7jJ/GJ7T9yHS78HP+8/kjEg4uESEK3oAGaNk\n"
+"pDFJfTAj4L3aaRLwapOJ/YxzFR80+rrL5N1o6rHdDKCNyNwFotG4FJ6CZnh8rPnl\n"
+"dmLqNu23sAPQNfLbSrVHJgbM11ge44pqgXIcF73VPth0gtKgbylY5Y3CZ+dAhktW\n"
+"WVCeJ44BAoGBAPrWuRkc4TLwZdthWBpWFSHBHJsiJf4yxcDgj77om4fUhPZEmgkD\n"
+"q6UZZ6PjQOlPfNSDWtLOTYDNulKZqSw1v6FcrDl9qmIAYvXL4A04tt7YiUnuj95z\n"
+"Z1GepLhaknoA7yTiSP5KripHesvkiubYWV10g1PWgMs4KqfKhh9kYeNhAoGBAPjy\n"
+"puxf/yimTwENXA/S33fK+EwKwqs4iKSEJ0m/BlUTWZ6U8xC+7E0rk7GnypUp6qUC\n"
+"+NSGZC+rzVNE5+PKj0Sok7Vfbd7TcXu79XTrf4Qv/eZhtoA8GBvBKX1pY3xO7R/M\n"
+"k2PkY5q2or7Z0kBxTzWDgSWQ/iaCQMVxvnCnxgv5AoGBAIceubC8bNcKxmOJqXLu\n"
+"Yg2/v9AVcg/fe8UtcmFtXbKqmUErrSoj7wdNixWuah4D8oNrirY56Wfz6mVqXsXw\n"
+"4hxjFmcVuX13JdewDi4xGdkrHbFUr+0tjz9ZTPP93h+YdzoQJy/MPMuLm6tPnj9B\n"
+"1cnQ5Jl52AEgbWHbZ6prYYuhAoGAVkzQHvs8WhwlISk/c+DXRRDguIO2bmK/w8Bo\n"
+"WkFVcaKum7Ho/TIierITli+jo8gPJrr8Bbi8/GWjXS1y8d2jgtqpseNuFCPaoFlN\n"
+"QwXsg6ebbgULnjK27NAukOI68bnuq+pgYe2ntdeAXYbnQx3Eprl6yMoVwMXArHG8\n"
+"4hLXLgkCgYEAjMzP4wgi1g28yrnVPwJsvfgWLc1dtg+5PO8g25fPrCKL5N4i1QvY\n"
+"BXZD/38ysq7gN3lE+9i/36s25H72RRI81bTfcpbUrp+DVB5bT/JUN2rpt2pN4p/r\n"
+"CPK83FVZkkAbeFkUe2uDMZK8qzVR2wgUsQrPnjubrtS4qtbCkD3/fSw=\n"
+"-----END RSA PRIVATE KEY-----\n";
 
 #endif /* AWS_IOT_CERTS_H */
