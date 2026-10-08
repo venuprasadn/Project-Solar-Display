@@ -181,28 +181,34 @@ void ble_provisioning_start_advertising(void)
         return; // Already advertising
     }
 
+    uint8_t own_addr_type = BLE_OWN_ADDR_PUBLIC;
+    int rc = ble_hs_id_infer_auto(0, &own_addr_type);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "Failed to infer address type: rc=%d", rc);
+        own_addr_type = BLE_OWN_ADDR_PUBLIC;
+    }
+
     struct ble_gap_adv_params adv_params;
     struct ble_hs_adv_fields fields;
     struct ble_hs_adv_fields rsp_fields;
-    int rc;
 
-    /* 1. Primary Advertising Packet: Flags + 128-bit Service UUID */
+    /* 1. Primary Advertising Packet: Flags + Complete Local Name (instant name discovery) */
     memset(&fields, 0, sizeof(fields));
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
-    fields.uuids128 = &gatt_svr_svc_uuid;
-    fields.num_uuids128 = 1;
-    fields.uuids128_is_complete = 1;
+    fields.name = (uint8_t *)s_device_name;
+    fields.name_len = strlen(s_device_name);
+    fields.name_is_complete = 1;
 
     rc = ble_gap_adv_set_fields(&fields);
     if (rc != 0) {
         ESP_LOGE(TAG, "Failed to set adv fields: rc=%d", rc);
     }
 
-    /* 2. Scan Response Packet: Complete Local Name */
+    /* 2. Scan Response Packet: 128-bit Service UUID */
     memset(&rsp_fields, 0, sizeof(rsp_fields));
-    rsp_fields.name = (uint8_t *)s_device_name;
-    rsp_fields.name_len = strlen(s_device_name);
-    rsp_fields.name_is_complete = 1;
+    rsp_fields.uuids128 = &gatt_svr_svc_uuid;
+    rsp_fields.num_uuids128 = 1;
+    rsp_fields.uuids128_is_complete = 1;
 
     rc = ble_gap_adv_rsp_set_fields(&rsp_fields);
     if (rc != 0) {
@@ -214,17 +220,21 @@ void ble_provisioning_start_advertising(void)
     adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
     adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
 
-    rc = ble_gap_adv_start(BLE_OWN_ADDR_PUBLIC, NULL, BLE_HS_FOREVER,
+    rc = ble_gap_adv_start(own_addr_type, NULL, BLE_HS_FOREVER,
                            &adv_params, ble_gap_event, NULL);
     if (rc != 0 && rc != BLE_HS_EALREADY) {
         ESP_LOGE(TAG, "Failed to start advertising: rc=%d", rc);
     } else {
-        ESP_LOGI(TAG, "📡 BLE Advertising active as '%s'", s_device_name);
+        ESP_LOGI(TAG, "📡 BLE Advertising active as '%s' (Addr Type: %d)", s_device_name, own_addr_type);
     }
 }
 
 static void ble_provisioning_on_sync(void)
 {
+    int rc = ble_hs_util_ensure_addr(0);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "Failed to ensure NimBLE identity address: %d", rc);
+    }
     /* Start advertising once NimBLE host synchronizes */
     ble_provisioning_start_advertising();
 }
