@@ -183,20 +183,33 @@ void ble_provisioning_start_advertising(void)
 
     struct ble_gap_adv_params adv_params;
     struct ble_hs_adv_fields fields;
+    struct ble_hs_adv_fields rsp_fields;
     int rc;
 
+    /* 1. Primary Advertising Packet: Flags + 128-bit Service UUID */
     memset(&fields, 0, sizeof(fields));
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
-    fields.name = (uint8_t *)s_device_name;
-    fields.name_len = strlen(s_device_name);
-    fields.name_is_complete = 1;
+    fields.uuids128 = &gatt_svr_svc_uuid;
+    fields.num_uuids128 = 1;
+    fields.uuids128_is_complete = 1;
 
     rc = ble_gap_adv_set_fields(&fields);
     if (rc != 0) {
         ESP_LOGE(TAG, "Failed to set adv fields: rc=%d", rc);
-        return;
     }
 
+    /* 2. Scan Response Packet: Complete Local Name */
+    memset(&rsp_fields, 0, sizeof(rsp_fields));
+    rsp_fields.name = (uint8_t *)s_device_name;
+    rsp_fields.name_len = strlen(s_device_name);
+    rsp_fields.name_is_complete = 1;
+
+    rc = ble_gap_adv_rsp_set_fields(&rsp_fields);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "Failed to set scan rsp fields: rc=%d", rc);
+    }
+
+    /* 3. Start Advertising */
     memset(&adv_params, 0, sizeof(adv_params));
     adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
     adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
