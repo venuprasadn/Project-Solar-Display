@@ -149,13 +149,25 @@ static void aws_iot_publisher_task(void *pvParameters)
                 pcu_vendor_snapshot_t v_snap = {0};
                 get_pcu_vendor_snapshot(&v_snap);
 
+                char mac_str[18];
+                uint8_t mac[6];
+                esp_efuse_mac_get_default(mac);
+                snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X",
+                         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+                char v_group[64];
+                snprintf(v_group, sizeof(v_group), "Vendor_%s", v_snap.brand_title);
+                for (int i = 0; v_group[i]; i++) {
+                    if (v_group[i] == ' ') v_group[i] = '_';
+                }
+
                 char payload[512];
                 snprintf(payload, sizeof(payload),
-                         "{\"thing\":\"%s\",\"seq\":%lu,\"up\":%lu,\"sol_v\":%.1f,\"bat_v\":%.1f,"
+                         "{\"thing\":\"%s\",\"mac\":\"%s\",\"vendor_group\":\"%s\",\"seq\":%lu,\"up\":%lu,\"sol_v\":%.1f,\"bat_v\":%.1f,"
                          "\"grid_v\":%.0f,\"ac_out\":%.0f,\"load_pct\":%.0f,\"chg_a\":%.1f,"
                          "\"dis_a\":%.1f,\"dc_b\":%.0f,\"heat\":%.1f,\"err\":%d,\"ssid\":\"%s\",\"ip\":\"%s\","
                          "\"vendor\":\"%s\",\"model\":\"%s\",\"sn\":\"%s\",\"hw\":\"%s\",\"contact\":\"%s\",\"site\":\"%s\"}",
-                         s_thing_id, seq++, uptime, snap.solarvolt, snap.battvolts,
+                         s_thing_id, mac_str, v_group, seq++, uptime, snap.solarvolt, snap.battvolts,
                          snap.mainsvolt, snap.acout, snap.loaddisp, snap.chrampsdisp,
                          snap.dischdisp, snap.dcboost, snap.upsheat, snap.error_code,
                          wifi_manager_get_ssid(), wifi_manager_get_ip_str(),
@@ -163,10 +175,8 @@ static void aws_iot_publisher_task(void *pvParameters)
                          v_snap.hardware_version, v_snap.vendor_contact, v_snap.vendor_website);
 
                 int msg_id = esp_mqtt_client_publish(s_mqtt_client, s_topic_telemetry, payload, 0, 0, 0);
-                esp_mqtt_client_publish(s_mqtt_client, "esp32/test", payload, 0, 0, 0);
-                ESP_LOGI(TAG, "📤 Published Telemetry to AWS IoT [ID:%d] (ClientActive:%d, Reason:%s)",
-                         msg_id, is_client_active,
-                         !has_published_first ? "INIT" : (is_client_active ? "CHANGE/HEARTBEAT" : "STANDBY_5M"));
+                ESP_LOGI(TAG, "📤 Published Telemetry to AWS IoT [ID:%d] (Thing:%s, Group:%s)",
+                         msg_id, s_thing_id, v_group);
 
                 last_snap = snap;
                 last_pub_time = uptime;
@@ -217,10 +227,11 @@ esp_err_t aws_iot_client_init(void)
     esp_sntp_config_t sntp_cfg = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
     esp_netif_sntp_init(&sntp_cfg);
 
-    /* 1. Generate unique Hardware Thing ID from eFuse MAC */
+    /* 1. Generate unique Hardware Thing ID from full 6-byte eFuse MAC */
     uint8_t mac[6];
     esp_efuse_mac_get_default(mac);
-    snprintf(s_thing_id, sizeof(s_thing_id), "SunGridNova-%02X%02X", mac[4], mac[5]);
+    snprintf(s_thing_id, sizeof(s_thing_id), "SunGridNova-%02X%02X%02X%02X%02X%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     snprintf(s_topic_telemetry, sizeof(s_topic_telemetry), "solar/%s/telemetry", s_thing_id);
     snprintf(s_topic_alerts, sizeof(s_topic_alerts), "solar/%s/alerts", s_thing_id);
 
