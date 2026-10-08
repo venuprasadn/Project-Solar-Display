@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 class BleProvisioningService {
@@ -65,22 +66,39 @@ class BleProvisioningService {
   Future<void> startScan() async {
     _statusMessageController.add('Scanning for nearby SunGridNova inverters...');
 
-    // Stop any existing scan
+    // 1. Request Android runtime permissions via native channel
+    try {
+      const MethodChannel wifiChannel = MethodChannel('com.sungridnova/wifi');
+      await wifiChannel.invokeMethod('requestBlePermissions');
+    } catch (_) {}
+
+    // 2. Stop any existing scan
     try {
       await FlutterBluePlus.stopScan();
     } catch (_) {}
 
     _scanSub?.cancel();
     _scanSub = FlutterBluePlus.scanResults.listen((results) {
+      int matchCount = 0;
       for (final r in results) {
         final advName = r.advertisementData.advName;
         final platName = r.device.platformName;
         final name = advName.isNotEmpty ? advName : platName;
+        final lower = name.toLowerCase();
         final bool hasMatchingUuid = r.advertisementData.serviceUuids.contains(serviceUuid);
-        if (name.startsWith('SunGridNova') || hasMatchingUuid || name.toLowerCase().contains('sungrid') || name.toLowerCase().contains('setup')) {
+        if (lower.contains('sungrid') ||
+            lower.contains('nova') ||
+            lower.contains('inverter') ||
+            lower.contains('setup') ||
+            lower.contains('esp') ||
+            hasMatchingUuid) {
+          matchCount++;
           _deviceFoundController.add(r.device);
           _statusMessageController.add('Found ${name.isNotEmpty ? name : "SunGridNova Inverter"}');
         }
+      }
+      if (matchCount == 0 && results.isNotEmpty) {
+        _statusMessageController.add('Scanning... (${results.length} Bluetooth devices seen nearby)');
       }
     });
 

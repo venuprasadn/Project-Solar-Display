@@ -181,10 +181,16 @@ void ble_provisioning_start_advertising(void)
         return; // Already advertising
     }
 
+    uint8_t own_addr_type = BLE_OWN_ADDR_PUBLIC;
+    int rc = ble_hs_id_infer_auto(0, &own_addr_type);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "Failed to infer address type: rc=%d", rc);
+        own_addr_type = BLE_OWN_ADDR_PUBLIC;
+    }
+
     struct ble_gap_adv_params adv_params;
     struct ble_hs_adv_fields fields;
     struct ble_hs_adv_fields rsp_fields;
-    int rc;
 
     /* 1. Primary Advertising Packet: Flags + Complete Local Name (instant name discovery) */
     memset(&fields, 0, sizeof(fields));
@@ -214,17 +220,21 @@ void ble_provisioning_start_advertising(void)
     adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
     adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
 
-    rc = ble_gap_adv_start(BLE_OWN_ADDR_PUBLIC, NULL, BLE_HS_FOREVER,
+    rc = ble_gap_adv_start(own_addr_type, NULL, BLE_HS_FOREVER,
                            &adv_params, ble_gap_event, NULL);
     if (rc != 0 && rc != BLE_HS_EALREADY) {
         ESP_LOGE(TAG, "Failed to start advertising: rc=%d", rc);
     } else {
-        ESP_LOGI(TAG, "📡 BLE Advertising active as '%s'", s_device_name);
+        ESP_LOGI(TAG, "📡 BLE Advertising active as '%s' (Addr Type: %d)", s_device_name, own_addr_type);
     }
 }
 
 static void ble_provisioning_on_sync(void)
 {
+    int rc = ble_hs_util_ensure_addr(0);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "Failed to ensure NimBLE identity address: %d", rc);
+    }
     /* Start advertising once NimBLE host synchronizes */
     ble_provisioning_start_advertising();
 }

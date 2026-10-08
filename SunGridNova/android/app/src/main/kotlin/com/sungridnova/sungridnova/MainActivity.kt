@@ -51,6 +51,31 @@ class MainActivity : FlutterActivity() {
                     val info = getConnectedWifiInfo()
                     result.success(info)
                 }
+                "requestBlePermissions" -> {
+                    val permissionsToRequest = mutableListOf<String>()
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        if (checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
+                            permissionsToRequest.add(Manifest.permission.BLUETOOTH_SCAN)
+                        }
+                        if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                            permissionsToRequest.add(Manifest.permission.BLUETOOTH_CONNECT)
+                        }
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                            permissionsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
+                        }
+                        if (checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                            permissionsToRequest.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+                        }
+                    }
+                    if (permissionsToRequest.isNotEmpty()) {
+                        pendingResult = result
+                        requestPermissions(permissionsToRequest.toTypedArray(), 1002)
+                    } else {
+                        result.success(true)
+                    }
+                }
                 "openLocationSettings" -> {
                     try {
                         val intent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
@@ -135,6 +160,10 @@ class MainActivity : FlutterActivity() {
             registerWifiCallback()
             val info = getConnectedWifiInfo()
             pendingResult?.success(info)
+            pendingResult = null
+        } else if (requestCode == 1002) {
+            registerWifiCallback()
+            pendingResult?.success(true)
             pendingResult = null
         }
     }
