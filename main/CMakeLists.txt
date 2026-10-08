@@ -16,5 +16,5 @@ idf_component_register(
          "assets/font_bold_16.c"
          "assets/font_bold_20.c"
     INCLUDE_DIRS "." "assets"
-    REQUIRES nvs_flash esp_timer esp_driver_uart esp_driver_gpio esp_driver_spi esp_driver_usb_serial_jtag esp_lcd lvgl spi_flash esp_wifi esp_event esp_netif mqtt mbedtls bt
+    REQUIRES nvs_flash esp_timer esp_driver_uart esp_driver_gpio esp_driver_spi esp_driver_usb_serial_jtag esp_lcd lvgl spi_flash esp_wifi esp_event esp_netif mqtt mbedtls bt cjson
 )

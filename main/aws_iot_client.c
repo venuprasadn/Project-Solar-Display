@@ -14,6 +14,9 @@
 #include <time.h>
 #include <math.h>
 #include "esp_netif_sntp.h"
+#include "nvs_flash.h"
+#include "nvs.h"
+#include "cJSON.h"
 #include "aws_iot_certs.h"
 
 static const char *TAG = "AWS_IOT";
@@ -21,9 +24,22 @@ static const char *TAG = "AWS_IOT";
 #define AWS_IOT_ENDPOINT   "a15qebuvm1g118-ats.iot.ap-southeast-2.amazonaws.com"
 #define AWS_IOT_PORT       8883
 
+#define AWS_PROV_TEMPLATE  "SunGridNova_Provisioning_Template"
+
+#define TOPIC_CERT_CREATE_REQ  "$aws/certificates/create/json"
+#define TOPIC_CERT_CREATE_ACC  "$aws/certificates/create/json/accepted"
+#define TOPIC_CERT_CREATE_REJ  "$aws/certificates/create/json/rejected"
+
+#define TOPIC_PROV_REQ         "$aws/provisioning-templates/" AWS_PROV_TEMPLATE "/provision/json"
+#define TOPIC_PROV_ACC         "$aws/provisioning-templates/" AWS_PROV_TEMPLATE "/provision/json/accepted"
+#define TOPIC_PROV_REJ         "$aws/provisioning-templates/" AWS_PROV_TEMPLATE "/provision/json/rejected"
+
 static esp_mqtt_client_handle_t s_mqtt_client = NULL;
 static bool s_is_mqtt_connected = false;
+static bool s_is_provisioned = false;
 static char s_thing_id[32] = "SunGridNova-XXXX";
+static char s_mac_str[18] = {0};
+static char s_mac_clean[14] = {0};
 static char s_topic_telemetry[64];
 static char s_topic_alerts[64];
 
@@ -47,6 +63,90 @@ bool aws_iot_is_app_client_active(void)
     return (s_is_mqtt_connected && (esp_timer_get_time() < s_client_active_until));
 }
 
+static bool check_nvs_provisioned(void)
+{
+    nvs_handle_t nvs;
+    uint8_t val = 0;
+    if (nvs_open("aws_prov", NVS_READONLY, &nvs) == ESP_OK) {
+        nvs_get_u8(nvs, "reg_done", &val);
+        nvs_close(nvs);
+    }
+    return (val == 1);
+}
+
+static void set_nvs_provisioned(bool done)
+{
+    nvs_handle_t nvs;
+    if (nvs_open("aws_prov", NVS_READWRITE, &nvs) == ESP_OK) {
+        nvs_set_u8(nvs, "reg_done", done ? 1 : 0);
+        nvs_commit(nvs);
+        nvs_close(nvs);
+        ESP_LOGI(TAG, "💾 Saved provisioning status to NVS: %d", done ? 1 : 0);
+    }
+}
+
+static void start_fleet_provisioning(void)
+{
+    ESP_LOGI(TAG, "🚀 Initiating AWS IoT Fleet Provisioning by Claim for %s...", s_thing_id);
+    esp_mqtt_client_subscribe(s_mqtt_client, TOPIC_CERT_CREATE_ACC, 1);
+    esp_mqtt_client_subscribe(s_mqtt_client, TOPIC_CERT_CREATE_REJ, 1);
+    esp_mqtt_client_subscribe(s_mqtt_client, TOPIC_PROV_ACC, 1);
+    esp_mqtt_client_subscribe(s_mqtt_client, TOPIC_PROV_REJ, 1);
+
+    /* Step 1: Request Certificate Creation via Claim */
+    esp_mqtt_client_publish(s_mqtt_client, TOPIC_CERT_CREATE_REQ, "{}", 2, 1, 0);
+    ESP_LOGI(TAG, "📤 Sent certificate request to %s", TOPIC_CERT_CREATE_REQ);
+}
+
+static void handle_provisioning_data(const char *topic, const char *data, int data_len)
+{
+    if (strcmp(topic, TOPIC_CERT_CREATE_ACC) == 0) {
+        ESP_LOGI(TAG, "📥 Certificate creation accepted by AWS IoT!");
+        cJSON *root = cJSON_ParseWithLength(data, data_len);
+        if (root) {
+            cJSON *token_item = cJSON_GetObjectItem(root, "certificateOwnershipToken");
+            if (token_item && token_item->valuestring) {
+                pcu_vendor_snapshot_t v_snap = {0};
+                get_pcu_vendor_snapshot(&v_snap);
+                char v_group[64];
+                snprintf(v_group, sizeof(v_group), "Vendor_%s", v_snap.brand_title);
+                for (int i = 0; v_group[i]; i++) {
+                    if (v_group[i] == ' ') v_group[i] = '_';
+                }
+
+                cJSON *req = cJSON_CreateObject();
+                cJSON_AddStringToObject(req, "certificateOwnershipToken", token_item->valuestring);
+                cJSON *params = cJSON_CreateObject();
+                cJSON_AddStringToObject(params, "SerialNumber", s_mac_clean);
+                cJSON_AddStringToObject(params, "MAC", s_mac_str);
+                cJSON_AddStringToObject(params, "VendorGroup", v_group);
+                cJSON_AddItemToObject(req, "parameters", params);
+
+                char *req_json = cJSON_PrintUnformatted(req);
+                if (req_json) {
+                    ESP_LOGI(TAG, "📤 Registering Thing in Template '%s' under '%s'...", AWS_PROV_TEMPLATE, v_group);
+                    esp_mqtt_client_publish(s_mqtt_client, TOPIC_PROV_REQ, req_json, strlen(req_json), 1, 0);
+                    free(req_json);
+                }
+                cJSON_Delete(req);
+            }
+            cJSON_Delete(root);
+        }
+    } else if (strcmp(topic, TOPIC_PROV_ACC) == 0) {
+        ESP_LOGI(TAG, "🎉 AWS IoT Fleet Provisioning SUCCESS! Thing '%s' registered in AWS Registry.", s_thing_id);
+        s_is_provisioned = true;
+        set_nvs_provisioned(true);
+
+        /* Unsubscribe from provisioning topics */
+        esp_mqtt_client_unsubscribe(s_mqtt_client, TOPIC_CERT_CREATE_ACC);
+        esp_mqtt_client_unsubscribe(s_mqtt_client, TOPIC_CERT_CREATE_REJ);
+        esp_mqtt_client_unsubscribe(s_mqtt_client, TOPIC_PROV_ACC);
+        esp_mqtt_client_unsubscribe(s_mqtt_client, TOPIC_PROV_REJ);
+    } else if (strcmp(topic, TOPIC_CERT_CREATE_REJ) == 0 || strcmp(topic, TOPIC_PROV_REJ) == 0) {
+        ESP_LOGW(TAG, "⚠️ AWS IoT Provisioning rejected on %s: %.*s", topic, data_len, data);
+    }
+}
+
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
 {
     esp_mqtt_event_handle_t event = (esp_mqtt_event_handle_t)event_data;
@@ -60,6 +160,10 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             ESP_LOGI(TAG, "✅ Connected to AWS IoT Core securely (mTLS 1.2 / Port 8883)");
             esp_mqtt_client_subscribe(s_mqtt_client, "solar/presence", 1);
             esp_mqtt_client_subscribe(s_mqtt_client, "solar/+/presence", 1);
+
+            if (!s_is_provisioned) {
+                start_fleet_provisioning();
+            }
             break;
         case MQTT_EVENT_DISCONNECTED:
             s_is_mqtt_connected = false;
@@ -67,13 +171,16 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             break;
         case MQTT_EVENT_DATA:
             if (event->topic && event->topic_len > 0) {
-                char topic_buf[64] = {0};
-                int tlen = (event->topic_len < 63) ? event->topic_len : 63;
+                char topic_buf[128] = {0};
+                int tlen = (event->topic_len < 127) ? event->topic_len : 127;
                 memcpy(topic_buf, event->topic, tlen);
                 topic_buf[tlen] = '\0';
+
                 if (strstr(topic_buf, "presence") != NULL) {
                     s_client_active_until = esp_timer_get_time() + (35 * 1000000ULL);
                     ESP_LOGI(TAG, "📱 Mobile App client presence detected! Real-time telemetry engaged.");
+                } else if (strstr(topic_buf, "$aws/") != NULL) {
+                    handle_provisioning_data(topic_buf, event->data, event->data_len);
                 }
             }
             break;
@@ -149,25 +256,19 @@ static void aws_iot_publisher_task(void *pvParameters)
                 pcu_vendor_snapshot_t v_snap = {0};
                 get_pcu_vendor_snapshot(&v_snap);
 
-                char mac_str[18];
-                uint8_t mac[6];
-                esp_efuse_mac_get_default(mac);
-                snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X",
-                         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-
                 char v_group[64];
                 snprintf(v_group, sizeof(v_group), "Vendor_%s", v_snap.brand_title);
                 for (int i = 0; v_group[i]; i++) {
                     if (v_group[i] == ' ') v_group[i] = '_';
                 }
 
-                char payload[512];
+                char payload[1024];
                 snprintf(payload, sizeof(payload),
                          "{\"thing\":\"%s\",\"mac\":\"%s\",\"vendor_group\":\"%s\",\"seq\":%lu,\"up\":%lu,\"sol_v\":%.1f,\"bat_v\":%.1f,"
                          "\"grid_v\":%.0f,\"ac_out\":%.0f,\"load_pct\":%.0f,\"chg_a\":%.1f,"
                          "\"dis_a\":%.1f,\"dc_b\":%.0f,\"heat\":%.1f,\"err\":%d,\"ssid\":\"%s\",\"ip\":\"%s\","
                          "\"vendor\":\"%s\",\"model\":\"%s\",\"sn\":\"%s\",\"hw\":\"%s\",\"contact\":\"%s\",\"site\":\"%s\"}",
-                         s_thing_id, mac_str, v_group, seq++, uptime, snap.solarvolt, snap.battvolts,
+                         s_thing_id, s_mac_str, v_group, seq++, uptime, snap.solarvolt, snap.battvolts,
                          snap.mainsvolt, snap.acout, snap.loaddisp, snap.chrampsdisp,
                          snap.dischdisp, snap.dcboost, snap.upsheat, snap.error_code,
                          wifi_manager_get_ssid(), wifi_manager_get_ip_str(),
@@ -230,13 +331,18 @@ esp_err_t aws_iot_client_init(void)
     /* 1. Generate unique Hardware Thing ID from full 6-byte eFuse MAC */
     uint8_t mac[6];
     esp_efuse_mac_get_default(mac);
-    snprintf(s_thing_id, sizeof(s_thing_id), "SunGridNova-%02X%02X%02X%02X%02X%02X",
+    snprintf(s_mac_str, sizeof(s_mac_str), "%02X:%02X:%02X:%02X:%02X:%02X",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    snprintf(s_mac_clean, sizeof(s_mac_clean), "%02X%02X%02X%02X%02X%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    snprintf(s_thing_id, sizeof(s_thing_id), "SunGridNova-%s", s_mac_clean);
     snprintf(s_topic_telemetry, sizeof(s_topic_telemetry), "solar/%s/telemetry", s_thing_id);
     snprintf(s_topic_alerts, sizeof(s_topic_alerts), "solar/%s/alerts", s_thing_id);
 
-    ESP_LOGI(TAG, "Initializing AWS IoT Client for Thing: %s (Free Heap: %lu, Largest Block: %lu)",
-             s_thing_id,
+    s_is_provisioned = check_nvs_provisioned();
+
+    ESP_LOGI(TAG, "Initializing AWS IoT Client for Thing: %s [Provisioned: %s] (Free Heap: %lu, Largest Block: %lu)",
+             s_thing_id, s_is_provisioned ? "YES" : "NO",
              (unsigned long)esp_get_free_heap_size(),
              (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
 
@@ -269,11 +375,11 @@ esp_err_t aws_iot_client_init(void)
             .reconnect_timeout_ms = 5000,
         },
         .task = {
-            .stack_size = 4096,
+            .stack_size = 8192,
         },
         .buffer = {
-            .size = 1024,
-            .out_size = 1024,
+            .size = 5120,
+            .out_size = 2048,
         },
     };
 
