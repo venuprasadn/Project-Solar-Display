@@ -14,56 +14,12 @@
 #include <time.h>
 #include <math.h>
 #include "esp_netif_sntp.h"
+#include "aws_iot_certs.h"
 
 static const char *TAG = "AWS_IOT";
 
 #define AWS_IOT_ENDPOINT   "a15qebuvm1g118-ats.iot.ap-southeast-2.amazonaws.com"
 #define AWS_IOT_PORT       8883
-
-static const char *s_root_ca =
-"-----BEGIN CERTIFICATE-----\n"
-"MIIDQTCCAimgAwIBAgITBmyfz5m/jAo54vB4ikPmljZbyjANBgkqhkiG9w0BAQsF\n"
-"ADA5MQswCQYDVQQGEwJVUzEPMA0GA1UEChMGQW1hem9uMRkwFwYDVQQDExBBbWF6\n"
-"b24gUm9vdCBDQSAxMB4XDTE1MDUyNjAwMDAwMFoXDTM4MDExNzAwMDAwMFowOTEL\n"
-"MAkGA1UEBhMCVVMxDzANBgNVBAoTBkFtYXpvbjEZMBcGA1UEAxMQQW1hem9uIFJv\n"
-"b3QgQ0EgMTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBALJ4gHHKeNXj\n"
-"ca9HgFB0fW7Y14h29Jlo91ghYPl0hAEvrAIthtOgQ3pOsqTQNroBvo3bSMgHFzZM\n"
-"9O6II8c+6zf1tRn4SWiw3te5djgdYZ6k/oI2peVKVuRF4fn9tBb6dNqcmzU5L/qw\n"
-"IFAGbHrQgLKm+a/sRxmPUDgH3KKHOVj4utWp+UhnMJbulHheb4mjUcAwhmahRWa6\n"
-"VOujw5H5SNz/0egwLX0tdHA114gk957EWW67c4cX8jJGKLhD+rcdqsq08p8kDi1L\n"
-"93FcXmn/6pUCyziKrlA4b9v7LWIbxcceVOF34GfID5yHI9Y/QCB/IIDEgEw+OyQm\n"
-"jgSubJrIqg0CAwEAAaNCMEAwDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMC\n"
-"AYYwHQYDVR0OBBYEFIQYzIU07LwMlJQuCFmcx7IQTgoIMA0GCSqGSIb3DQEBCwUA\n"
-"A4IBAQCY8jdaQZChGsV2USggNiMOruYou6r4lK5IpDB/G/wkjUu0yKGX9rbxenDI\n"
-"U5PMCCjjmCXPI6T53iHTfIUJrU6adTrCC2qJeHZERxhlbI1Bjjt/msv0tadQ1wUs\n"
-"N+gDS63pYaACbvXy8MWy7Vu33PqUXHeeE6V/Uq2V8viTO96LXFvKWlJbYK8U90vv\n"
-"o/ufQJVtMVT8QtPHRh8jrdkPSHCa2XV4cdFyQzR1bldZwgJcJmApzyMZFo6IQ6XU\n"
-"5MsI+yMRQ+hDKXJioaldXgjUkK642M4UwtBV8ob2xJNDd2ZhwLnoQdeXeGADbkpy\n"
-"rqXRfboQnoZsG4q5WTP468SQvvG5\n"
-"-----END CERTIFICATE-----\n";
-
-static const char *s_client_cert =
-"-----BEGIN CERTIFICATE-----\n"
-"MIICFjCCAbygAwIBAgIUU+zmCtwJr5LiZE4Ock9YzJulpQkwCgYIKoZIzj0EAwIw\n"
-"cTELMAkGA1UEBhMCSU4xDzANBgNVBAgMBktlcmFsYTEPMA0GA1UEBwwGS2FubnVy\n"
-"MRQwEgYDVQQKDAtTdW5HcmlkTm92YTEMMAoGA1UECwwDSW9UMRwwGgYDVQQDDBNT\n"
-"dW5HcmlkTm92YSBSb290IENBMCAXDTI1MDcwMjE4MjgwM1oYDzIxMjQwNjA4MTgy\n"
-"ODAzWjBfMQswCQYDVQQGEwJJTjEPMA0GA1UECAwGS2VyYWxhMQ8wDQYDVQQHDAZL\n"
-"YW5udXIxFDASBgNVBAoMC1N1bkdyaWROb3ZhMQwwCgYDVQQLDANJb1QxCjAIBgNV\n"
-"BAMMATEwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAS4O/fxZ3FQSAJU5vUPmhJ0\n"
-"FPpRjDaZ8cBYurYGPjzPVTOIKaswRdKwgpaw0P6fZtoy41E/hiyJ0a1BE4Mr0gFv\n"
-"o0IwQDAdBgNVHQ4EFgQUpenLX3F72HXstrVVRZBKQnvWOxwwHwYDVR0jBBgwFoAU\n"
-"rrrDrznIbmEJXH0Ev4t2qZqpi78wCgYIKoZIzj0EAwIDSAAwRQIhAJrwVfW/Apin\n"
-"NZ5pmfR70NYGE+L+X0QutHnSQQRE/SCHAiAqL/yw8SL3steM5S6tmfp1PmE4pZOV\n"
-"HFInMT64gm7ukw==\n"
-"-----END CERTIFICATE-----\n";
-
-static const char *s_client_key =
-"-----BEGIN EC PRIVATE KEY-----\n"
-"MHcCAQEEIAeDoK8SV4NakJNmBp5XZtvVZlqVoTPNUqC4EKAk6qteoAoGCCqGSM49\n"
-"AwEHoUQDQgAEuDv38WdxUEgCVOb1D5oSdBT6UYw2mfHAWLq2Bj48z1UziCmrMEXS\n"
-"sIKWsND+n2baMuNRP4YsidGtQRODK9IBbw==\n"
-"-----END EC PRIVATE KEY-----\n";
 
 static esp_mqtt_client_handle_t s_mqtt_client = NULL;
 static bool s_is_mqtt_connected = false;
@@ -282,16 +238,16 @@ esp_err_t aws_iot_client_init(void)
                 .port = AWS_IOT_PORT,
             },
             .verification = {
-                .certificate = s_root_ca,
+                .certificate = AWS_ROOT_CA_CERT,
                 .certificate_len = 0,
             },
         },
         .credentials = {
             .client_id = s_thing_id,
             .authentication = {
-                .certificate = s_client_cert,
+                .certificate = AWS_CLIENT_CERT,
                 .certificate_len = 0,
-                .key = s_client_key,
+                .key = AWS_CLIENT_KEY,
                 .key_len = 0,
             },
         },

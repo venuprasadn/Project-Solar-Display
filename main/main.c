@@ -3844,11 +3844,9 @@ void app_main(void)
         xTaskCreatePinnedToCore(inverter_uart_task, "INV_UART", 4096, NULL, 3, NULL, 0);
     }
 
-    /* 11. Initialize Industrial Wi-Fi & BLE Provisioning (Core 0, non-blocking) if Model has App */
-    if (has_app) {
-        wifi_manager_init();
-        ble_provisioning_init();
-    }
+    /* 11. Initialize Industrial Wi-Fi & BLE Provisioning (Core 0, non-blocking) */
+    wifi_manager_init();
+    ble_provisioning_init();
 }
 
 /* Thread-safe telemetry snapshot for AWS IoT Core publisher */
