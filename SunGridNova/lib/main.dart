@@ -1724,7 +1724,7 @@ class _ProvisioningScreenState extends State<ProvisioningScreen> with WidgetsBin
                                 const Icon(CupertinoIcons.antenna_radiowaves_left_right, color: Color(0xFF38BDF8), size: 18),
                                 const SizedBox(width: 10),
                                 Text(
-                                  d.advName.isNotEmpty ? d.advName : 'SunGridNova Device',
+                                  _bleService.getDeviceName(d),
                                   style: const TextStyle(fontWeight: FontWeight.w700, color: Colors.white),
                                 ),
                               ],

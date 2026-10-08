@@ -219,6 +219,8 @@ void ble_provisioning_start_advertising(void)
     memset(&adv_params, 0, sizeof(adv_params));
     adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
     adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
+    adv_params.itvl_min = BLE_GAP_ADV_ITVL_MS(20); // Fast 20ms beacon
+    adv_params.itvl_max = BLE_GAP_ADV_ITVL_MS(40); // Fast 40ms beacon
 
     rc = ble_gap_adv_start(own_addr_type, NULL, BLE_HS_FOREVER,
                            &adv_params, ble_gap_event, NULL);
@@ -227,6 +229,11 @@ void ble_provisioning_start_advertising(void)
     } else {
         ESP_LOGI(TAG, "📡 BLE Advertising active as '%s' (Addr Type: %d)", s_device_name, own_addr_type);
     }
+}
+
+static void ble_provisioning_on_reset(int reason)
+{
+    ESP_LOGE(TAG, "NimBLE reset; reason=%d", reason);
 }
 
 static void ble_provisioning_on_sync(void)
@@ -266,14 +273,15 @@ esp_err_t ble_provisioning_init(void)
         return ret;
     }
 
+    ble_hs_cfg.reset_cb = ble_provisioning_on_reset;
+    ble_hs_cfg.sync_cb = ble_provisioning_on_sync;
+
     ble_svc_gap_init();
     ble_svc_gatt_init();
     ble_svc_gap_device_name_set(s_device_name);
 
     ble_gatts_count_cfg(gatt_svr_svcs);
     ble_gatts_add_svcs(gatt_svr_svcs);
-
-    ble_hs_cfg.sync_cb = ble_provisioning_on_sync;
 
     nimble_port_freertos_init(ble_provisioning_host_task);
     s_ble_active = true;

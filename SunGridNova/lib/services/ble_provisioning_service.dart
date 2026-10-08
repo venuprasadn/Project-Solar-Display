@@ -63,6 +63,15 @@ class BleProvisioningService {
   String? _vendorWebsite;
   String? get vendorWebsite => _vendorWebsite;
 
+  final Map<String, String> _deviceNames = {};
+  String getDeviceName(BluetoothDevice dev) {
+    final cached = _deviceNames[dev.remoteId.str];
+    if (cached != null && cached.isNotEmpty) return cached;
+    if (dev.platformName.isNotEmpty) return dev.platformName;
+    if (dev.advName.isNotEmpty) return dev.advName;
+    return 'SunGridNova (${dev.remoteId.str})';
+  }
+
   Future<void> startScan() async {
     _statusMessageController.add('Scanning for nearby SunGridNova inverters...');
 
@@ -83,7 +92,10 @@ class BleProvisioningService {
       for (final r in results) {
         final advName = r.advertisementData.advName;
         final platName = r.device.platformName;
-        final name = advName.isNotEmpty ? advName : platName;
+        final name = advName.isNotEmpty ? advName : (platName.isNotEmpty ? platName : '');
+        if (name.isNotEmpty) {
+          _deviceNames[r.device.remoteId.str] = name;
+        }
         final lower = name.toLowerCase();
         final bool hasMatchingUuid = r.advertisementData.serviceUuids.contains(serviceUuid);
         if (lower.contains('sungrid') ||
