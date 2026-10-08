@@ -65,21 +65,6 @@ class BleProvisioningService {
   Future<void> startScan() async {
     _statusMessageController.add('Scanning for nearby SunGridNova inverters...');
 
-    try {
-      if (await FlutterBluePlus.isSupported == false) {
-        _statusMessageController.add('Bluetooth is not supported on this device.');
-        return;
-      }
-      if (FlutterBluePlus.adapterStateNow != BluetoothAdapterState.on) {
-        _statusMessageController.add('⚠️ Bluetooth is OFF. Please turn ON Bluetooth & Location in phone settings.');
-        try {
-          await FlutterBluePlus.turnOn();
-        } catch (_) {}
-      }
-    } catch (e) {
-      debugPrint('Adapter check error: $e');
-    }
-
     // Stop any existing scan
     try {
       await FlutterBluePlus.stopScan();
@@ -94,6 +79,7 @@ class BleProvisioningService {
         final bool hasMatchingUuid = r.advertisementData.serviceUuids.contains(serviceUuid);
         if (name.startsWith('SunGridNova') || hasMatchingUuid || name.toLowerCase().contains('sungrid')) {
           _deviceFoundController.add(r.device);
+          _statusMessageController.add('Found ${name.isNotEmpty ? name : "SunGridNova Inverter"}');
         }
       }
     });
@@ -101,10 +87,13 @@ class BleProvisioningService {
     try {
       await FlutterBluePlus.startScan(
         timeout: const Duration(seconds: 15),
-        androidUsesFineLocation: true,
       );
     } catch (e) {
-      _statusMessageController.add('Scan error: $e');
+      if (e.toString().toLowerCase().contains('turned off') || e.toString().toLowerCase().contains('state')) {
+        _statusMessageController.add('⚠️ Please make sure Bluetooth and Location (GPS) are turned ON in phone settings.');
+      } else {
+        _statusMessageController.add('Scan status: $e');
+      }
     }
   }
 
